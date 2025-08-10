@@ -19,7 +19,7 @@ export class DatabaseConnection {
       ssl: Config.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     });
 
-    this.pool.on('error', (err) => {
+    this.pool.on('error', (err: any) => {
       logger.error('Unexpected error on idle client', { error: err });
     });
 

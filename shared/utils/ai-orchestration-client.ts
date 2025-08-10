@@ -79,7 +79,7 @@ export class AIOrchestrationClient {
         throw new Error(`AI orchestration failed with status ${response.status}: ${response.statusText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as any;
       
       this.logger.info('AI orchestration completed successfully', {
         userId: request.user_id,
@@ -134,7 +134,7 @@ export class AIOrchestrationClient {
         throw new Error(`Batch AI orchestration failed with status ${response.status}: ${response.statusText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as any;
       
       this.logger.info('Batch AI orchestration completed', {
         userCount: requests.length,
@@ -177,7 +177,7 @@ export class AIOrchestrationClient {
         throw new Error(`System insights request failed with status ${response.status}: ${response.statusText}`);
       }
 
-      const result = await response.json();
+      const result = await response.json() as any;
       return result.insights;
 
     } catch (error) {
