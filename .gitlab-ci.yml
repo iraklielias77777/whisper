@@ -1,0 +1,597 @@
+# User Whisperer Platform - GitLab CI/CD Pipeline
+# Comprehensive pipeline with parallel execution, quality gates, and advanced deployment strategies
+
+stages:
+  - quality
+  - test
+  - security
+  - build
+  - deploy-staging
+  - deploy-production
+  - post-deployment
+
+variables:
+  # Container Registry
+  REGISTRY: gcr.io
+  PROJECT_ID: userwhisperer-prod
+  
+  # Docker configuration
+  DOCKER_DRIVER: overlay2
+  DOCKER_TLS_CERTDIR: "/certs"
+  DOCKER_BUILDKIT: 1
+  
+  # Application
+  APP_NAME: userwhisperer
+  
+  # Quality Gates
+  MIN_COVERAGE: "90"
+  MAX_VULNERABILITIES: "0"
+  
+  # Kubernetes
+  CLUSTER_NAME: userwhisperer-cluster
+  CLUSTER_ZONE: us-central1-a
+
+# Common templates
+.auth_gcp: &auth_gcp
+  before_script:
+    - echo $GCP_SERVICE_KEY | base64 -d > /tmp/gcp-key.json
+    - gcloud auth activate-service-account --key-file=/tmp/gcp-key.json
+    - gcloud config set project $PROJECT_ID
+
+.docker_build_template: &docker_build_template
+  image: docker:24
+  services:
+    - docker:24-dind
+  before_script:
+    - echo $GCP_SERVICE_KEY | base64 -d > /tmp/gcp-key.json
+    - cat /tmp/gcp-key.json | docker login -u _json_key --password-stdin https://gcr.io
+
+.kubectl_template: &kubectl_template
+  image: google/cloud-sdk:alpine
+  <<: *auth_gcp
+  before_script:
+    - !reference [.auth_gcp, before_script]
+    - gcloud container clusters get-credentials $CLUSTER_NAME --zone=$CLUSTER_ZONE
+
+# ==========================================
+# STAGE 1: CODE QUALITY
+# ==========================================
+
+lint:javascript:
+  stage: quality
+  image: node:20-alpine
+  cache:
+    paths:
+      - node_modules/
+    policy: pull-push
+  script:
+    - echo "🔍 Running JavaScript/TypeScript linting..."
+    - npm ci --prefer-offline
+    - npm run lint
+    - npm run typecheck
+  artifacts:
+    reports:
+      junit: lint-results.xml
+    paths:
+      - lint-results.xml
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+lint:python:
+  stage: quality
+  image: python:3.11-alpine
+  cache:
+    paths:
+      - .cache/pip
+  before_script:
+    - pip install --cache-dir .cache/pip flake8 black mypy
+  script:
+    - echo "🔍 Running Python linting..."
+    - flake8 --format=junit-xml --output-file=flake8-results.xml src/ || true
+    - black --check --diff src/
+    - mypy src/ --junit-xml=mypy-results.xml || true
+  artifacts:
+    reports:
+      junit: 
+        - flake8-results.xml
+        - mypy-results.xml
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+lint:go:
+  stage: quality
+  image: golang:1.21-alpine
+  script:
+    - echo "🔍 Running Go linting..."
+    - go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest
+    - cd services/channel-orchestration
+    - golangci-lint run --out-format junit-xml > golint-results.xml || true
+  artifacts:
+    reports:
+      junit: services/channel-orchestration/golint-results.xml
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+code_quality:
+  stage: quality
+  image: sonarsource/sonar-scanner-cli:latest
+  variables:
+    SONAR_USER_HOME: "${CI_PROJECT_DIR}/.sonar"
+    GIT_DEPTH: "0"
+  cache:
+    key: "${CI_JOB_NAME}"
+    paths:
+      - .sonar/cache
+  script:
+    - echo "📊 Running SonarQube analysis..."
+    - sonar-scanner
+      -Dsonar.projectKey=userwhisperer_platform
+      -Dsonar.projectName="User Whisperer Platform"
+      -Dsonar.sources=src/
+      -Dsonar.host.url=$SONAR_HOST_URL
+      -Dsonar.login=$SONAR_TOKEN
+      -Dsonar.qualitygate.wait=true
+  artifacts:
+    reports:
+      sonarqube: .scannerwork/report-task.txt
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# ==========================================
+# STAGE 2: TESTING
+# ==========================================
+
+test:unit:
+  stage: test
+  parallel:
+    matrix:
+      - SERVICE: [event-ingestion, api-gateway]
+        RUNTIME: node
+      - SERVICE: [behavioral-analysis, decision-engine, content-generation]
+        RUNTIME: python
+      - SERVICE: [channel-orchestration]
+        RUNTIME: go
+  image: 
+    - name: node:20-alpine
+      if: $RUNTIME == "node"
+    - name: python:3.11-alpine
+      if: $RUNTIME == "python"
+    - name: golang:1.21-alpine
+      if: $RUNTIME == "go"
+  services:
+    - postgres:15
+    - redis:7
+  variables:
+    POSTGRES_DB: test
+    POSTGRES_USER: test
+    POSTGRES_PASSWORD: test
+    REDIS_URL: redis://redis:6379
+    POSTGRES_URL: postgresql://test:test@postgres:5432/test
+  before_script:
+    - cd services/$SERVICE
+    - |
+      if [ "$RUNTIME" = "node" ]; then
+        npm ci
+      elif [ "$RUNTIME" = "python" ]; then
+        pip install -r requirements.txt
+        pip install pytest pytest-cov pytest-asyncio
+      elif [ "$RUNTIME" = "go" ]; then
+        go mod download
+      fi
+  script:
+    - echo "🧪 Running unit tests for $SERVICE ($RUNTIME)..."
+    - |
+      if [ "$RUNTIME" = "node" ]; then
+        npm test -- --coverage --maxWorkers=2 --reporters=default --reporters=jest-junit
+      elif [ "$RUNTIME" = "python" ]; then
+        python -m pytest tests/unit/ --cov=src --cov-report=xml --cov-report=html --junitxml=junit.xml -v
+      elif [ "$RUNTIME" = "go" ]; then
+        go test -v -race -coverprofile=coverage.out -covermode=atomic ./... | tee test-results.txt
+        go install github.com/jstemmer/go-junit-report@latest
+        cat test-results.txt | go-junit-report > junit.xml
+      fi
+  coverage: '/^TOTAL.*\s+(\d+%)$/'
+  artifacts:
+    reports:
+      junit: 
+        - services/$SERVICE/junit.xml
+        - services/$SERVICE/test-results.xml
+      coverage_report:
+        coverage_format: cobertura
+        path: 
+          - services/$SERVICE/coverage.xml
+          - services/$SERVICE/coverage/cobertura-coverage.xml
+    paths:
+      - services/$SERVICE/coverage/
+      - services/$SERVICE/coverage.out
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+test:integration:
+  stage: test
+  image: docker/compose:alpine-1.29.2
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  before_script:
+    - docker info
+    - docker-compose --version
+  script:
+    - echo "🔗 Running integration tests..."
+    - docker-compose -f docker-compose.test.yml up --build --abort-on-container-exit --exit-code-from tests
+  after_script:
+    - docker-compose -f docker-compose.test.yml down -v
+  artifacts:
+    reports:
+      junit: test-results/integration-*.xml
+    paths:
+      - test-results/
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+test:e2e:
+  stage: test
+  image: python:3.11
+  services:
+    - docker:24-dind
+  variables:
+    DOCKER_HOST: tcp://docker:2376
+    DOCKER_TLS_CERTDIR: "/certs"
+    DOCKER_TLS_VERIFY: 1
+    DOCKER_CERT_PATH: "$DOCKER_TLS_CERTDIR/client"
+  before_script:
+    - docker info
+    - pip install -r requirements-test.txt
+    - docker-compose -f docker-compose.test.yml up -d
+    - sleep 60  # Wait for services to start
+    - ./scripts/wait-for-services.sh --timeout=300
+  script:
+    - echo "🎭 Running end-to-end tests..."
+    - python -m pytest tests/e2e/ -v --junitxml=e2e-results.xml --html=e2e-report.html
+  after_script:
+    - docker-compose -f docker-compose.test.yml down -v
+  artifacts:
+    reports:
+      junit: e2e-results.xml
+    paths:
+      - e2e-report.html
+      - e2e-results.xml
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+  allow_failure: false
+
+# ==========================================
+# STAGE 3: SECURITY
+# ==========================================
+
+security:dependencies:
+  stage: security
+  parallel:
+    matrix:
+      - SCAN_TYPE: [npm, python, go]
+  image: 
+    - name: node:20-alpine
+      if: $SCAN_TYPE == "npm"
+    - name: python:3.11-alpine
+      if: $SCAN_TYPE == "python"
+    - name: golang:1.21-alpine
+      if: $SCAN_TYPE == "go"
+  before_script:
+    - |
+      if [ "$SCAN_TYPE" = "npm" ]; then
+        npm ci
+      elif [ "$SCAN_TYPE" = "python" ]; then
+        pip install safety
+      elif [ "$SCAN_TYPE" = "go" ]; then
+        go install github.com/securecodewarrior/nancy@latest
+      fi
+  script:
+    - echo "🔒 Running $SCAN_TYPE dependency security scan..."
+    - |
+      if [ "$SCAN_TYPE" = "npm" ]; then
+        npm audit --audit-level=moderate --json > npm-audit.json || true
+      elif [ "$SCAN_TYPE" = "python" ]; then
+        safety check --json --output safety-report.json || true
+      elif [ "$SCAN_TYPE" = "go" ]; then
+        go list -json -deps ./... | nancy sleuth --output=json > nancy-report.json || true
+      fi
+  artifacts:
+    paths:
+      - "*-audit.json"
+      - "*-report.json"
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+security:sast:
+  stage: security
+  image: python:3.11-alpine
+  before_script:
+    - pip install bandit semgrep
+  script:
+    - echo "🔒 Running static application security testing..."
+    - bandit -r src/ -f json -o bandit-report.json || true
+    - semgrep --config=auto --json --output=semgrep-report.json src/ || true
+  artifacts:
+    paths:
+      - bandit-report.json
+      - semgrep-report.json
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+security:secrets:
+  stage: security
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache git
+    - wget -O trufflehog.tar.gz https://github.com/trufflesecurity/trufflehog/releases/download/v3.63.2/trufflehog_3.63.2_linux_amd64.tar.gz
+    - tar -xzf trufflehog.tar.gz
+    - chmod +x trufflehog
+  script:
+    - echo "🔍 Scanning for secrets..."
+    - ./trufflehog git file://. --json > secrets-report.json || true
+  artifacts:
+    paths:
+      - secrets-report.json
+    expire_in: 1 week
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+
+# ==========================================
+# STAGE 4: BUILD
+# ==========================================
+
+build:images:
+  stage: build
+  <<: *docker_build_template
+  parallel:
+    matrix:
+      - SERVICE: [event-ingestion, behavioral-analysis, decision-engine, content-generation, channel-orchestration, api-gateway]
+  script:
+    - echo "🏗️ Building Docker image for $SERVICE..."
+    
+    # Generate image tags
+    - export IMAGE_TAG=${CI_COMMIT_SHA:0:8}
+    - export IMAGE_NAME=$REGISTRY/$PROJECT_ID/$SERVICE
+    - export FULL_IMAGE_NAME=$IMAGE_NAME:$IMAGE_TAG
+    
+    # Build multi-platform image
+    - docker buildx create --use --name multiplatform || true
+    - docker buildx inspect --bootstrap
+    
+    - |
+      docker buildx build \
+        --platform linux/amd64,linux/arm64 \
+        --tag $IMAGE_NAME:$IMAGE_TAG \
+        --tag $IMAGE_NAME:latest \
+        --tag $IMAGE_NAME:$CI_COMMIT_REF_SLUG \
+        --build-arg VERSION=$CI_COMMIT_SHA \
+        --build-arg BUILD_DATE=$(date -u +'%Y-%m-%dT%H:%M:%SZ') \
+        --build-arg VCS_REF=$CI_COMMIT_SHA \
+        --push \
+        ./services/$SERVICE
+    
+    # Generate SBOM
+    - docker pull $FULL_IMAGE_NAME
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/syft:latest $FULL_IMAGE_NAME -o spdx-json > $SERVICE-sbom.spdx.json
+    
+    # Scan for vulnerabilities
+    - docker run --rm -v /var/run/docker.sock:/var/run/docker.sock anchore/grype:latest $FULL_IMAGE_NAME -o json > $SERVICE-vulnerabilities.json || true
+    
+    - echo "✅ Built and pushed $FULL_IMAGE_NAME"
+  artifacts:
+    paths:
+      - "*-sbom.spdx.json"
+      - "*-vulnerabilities.json"
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  when: on_success
+
+# ==========================================
+# STAGE 5: DEPLOY STAGING
+# ==========================================
+
+deploy:staging:
+  stage: deploy-staging
+  <<: *kubectl_template
+  environment:
+    name: staging
+    url: https://staging.userwhisperer.ai
+  variables:
+    NAMESPACE: userwhisperer-staging
+    CLUSTER_SUFFIX: -staging
+  script:
+    - echo "🚀 Deploying to staging environment..."
+    
+    # Get cluster credentials
+    - gcloud container clusters get-credentials $CLUSTER_NAME$CLUSTER_SUFFIX --zone=$CLUSTER_ZONE
+    
+    # Update image tags
+    - export IMAGE_TAG=${CI_COMMIT_SHA:0:8}
+    - |
+      SERVICES="event-ingestion behavioral-analysis decision-engine content-generation channel-orchestration api-gateway"
+      
+      for SERVICE in $SERVICES; do
+        echo "📦 Updating $SERVICE to $IMAGE_TAG"
+        kubectl set image deployment/$SERVICE \
+          $SERVICE=$REGISTRY/$PROJECT_ID/$SERVICE:$IMAGE_TAG \
+          -n $NAMESPACE
+      done
+    
+    # Wait for deployments
+    - |
+      for SERVICE in $SERVICES; do
+        echo "⏳ Waiting for $SERVICE deployment..."
+        kubectl rollout status deployment/$SERVICE -n $NAMESPACE --timeout=300s
+      done
+    
+    # Run health checks
+    - ./scripts/health-check.sh --namespace=$NAMESPACE --timeout=60
+    
+    # Run smoke tests
+    - pip install -r requirements-test.txt
+    - python -m pytest tests/smoke/ --base-url=https://staging.userwhisperer.ai -v --junitxml=smoke-staging.xml
+  artifacts:
+    reports:
+      junit: smoke-staging.xml
+    expire_in: 1 week
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+      when: manual
+  when: on_success
+
+# ==========================================
+# STAGE 6: DEPLOY PRODUCTION
+# ==========================================
+
+deploy:production:
+  stage: deploy-production
+  <<: *kubectl_template
+  environment:
+    name: production
+    url: https://api.userwhisperer.ai
+  variables:
+    NAMESPACE: userwhisperer-prod
+  script:
+    - echo "🌟 Deploying to production environment..."
+    
+    # Get cluster credentials
+    - gcloud container clusters get-credentials $CLUSTER_NAME --zone=$CLUSTER_ZONE
+    
+    # Pre-deployment backup
+    - echo "💾 Creating pre-deployment backup..."
+    - ./scripts/backup-production.sh
+    
+    # Blue-green deployment
+    - export IMAGE_TAG=${CI_COMMIT_SHA:0:8}
+    - |
+      ./scripts/deploy-production.sh \
+        --version=$CI_COMMIT_SHA \
+        --image-tag=$IMAGE_TAG \
+        --registry=$REGISTRY/$PROJECT_ID \
+        --namespace=$NAMESPACE \
+        --strategy=blue-green \
+        --timeout=600
+    
+    # Health checks
+    - echo "🏥 Running production health checks..."
+    - ./scripts/health-check-production.sh --timeout=300 --check-all-services
+    
+    # Smoke tests
+    - pip install -r requirements-test.txt
+    - python -m pytest tests/smoke/ --base-url=https://api.userwhisperer.ai --production-mode -v --junitxml=smoke-production.xml
+    
+    # Update deployment tracking
+    - python scripts/track-deployment.py --version=$CI_COMMIT_SHA --environment=production --status=successful
+  artifacts:
+    reports:
+      junit: smoke-production.xml
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+      when: manual
+      allow_failure: false
+  when: on_success
+
+# ==========================================
+# STAGE 7: POST-DEPLOYMENT
+# ==========================================
+
+validate:production:
+  stage: post-deployment
+  image: python:3.11-alpine
+  before_script:
+    - pip install requests prometheus-api-client
+  script:
+    - echo "📊 Validating production deployment..."
+    
+    # Wait for stabilization
+    - sleep 300
+    
+    # Performance tests
+    - wget -O k6.tar.gz https://github.com/grafana/k6/releases/download/v0.46.0/k6-v0.46.0-linux-amd64.tar.gz
+    - tar -xzf k6.tar.gz
+    - mv k6-v0.46.0-linux-amd64/k6 /usr/local/bin/
+    - |
+      k6 run tests/performance/load-test.js \
+        --env BASE_URL=https://api.userwhisperer.ai \
+        --env API_KEY=$PROD_API_KEY
+    
+    # Metrics validation
+    - python scripts/validate-metrics.py --prometheus-url=$PROMETHEUS_URL --duration=5m --check-sla
+    
+    # Create release notes
+    - python scripts/generate-release-notes.py --version=$CI_COMMIT_SHA --environment=production
+  artifacts:
+    paths:
+      - release-notes.md
+      - performance-results.json
+    expire_in: 30 days
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: on_success
+
+# Notification jobs
+notify:success:
+  stage: post-deployment
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"🎉 Production deployment successful! Version: '$CI_COMMIT_SHA' by '$GITLAB_USER_NAME'"}' \
+        $SLACK_WEBHOOK
+  rules:
+    - if: $CI_COMMIT_BRANCH == "main"
+  when: on_success
+
+notify:failure:
+  stage: post-deployment
+  image: alpine:latest
+  before_script:
+    - apk add --no-cache curl
+  script:
+    - |
+      curl -X POST -H 'Content-type: application/json' \
+        --data '{"text":"🚨 Pipeline failed! Branch: '$CI_COMMIT_REF_NAME' Commit: '$CI_COMMIT_SHA' by '$GITLAB_USER_NAME'"}' \
+        $SLACK_WEBHOOK_ALERTS
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "develop"
+  when: on_failure

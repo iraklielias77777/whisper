@@ -1,0 +1,244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Whisperer SDK Integration Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        .status { padding: 10px; margin: 10px 0; border-radius: 5px; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        .info { background: #d1ecf1; color: #0c5460; border: 1px solid #bee5eb; }
+        button { padding: 10px 20px; margin: 5px; }
+        #logs { background: #f8f9fa; padding: 15px; border-radius: 5px; max-height: 300px; overflow-y: auto; }
+    </style>
+</head>
+<body>
+    <h1>🔍 User Whisperer SDK Integration Test</h1>
+    
+    <div class="status info">
+        <strong>Current Configuration:</strong><br>
+        API Endpoint: <span id="endpoint">Loading...</span><br>
+        SDK Version: <span id="version">Loading...</span><br>
+        Status: <span id="status">Initializing...</span>
+    </div>
+
+    <h2>Test Actions</h2>
+    <button onclick="testBasicTracking()">📊 Test Basic Event Tracking</button>
+    <button onclick="testUserIdentification()">👤 Test User Identification</button>
+    <button onclick="testCustomEvents()">🎯 Test Custom Events</button>
+    <button onclick="testBatchingAndFlushing()">📦 Test Batching & Flushing</button>
+    <button onclick="testErrorHandling()">❌ Test Error Handling</button>
+    <button onclick="runFullIntegrationTest()">🚀 Run Full Integration Test</button>
+
+    <h2>Event Logs</h2>
+    <div id="logs"></div>
+
+    <script src="./sdk/javascript/lib/userwhisperer.js"></script>
+    <script>
+        let uw;
+        const logs = document.getElementById('logs');
+        
+        // Initialize SDK
+        try {
+            uw = new UserWhisperer({
+                apiKey: 'test-api-key-12345',
+                appId: 'test-app',
+                endpoint: 'https://api.userwhisperer.ai', // Production endpoint
+                debug: true,
+                batchSize: 5,
+                flushInterval: 2000
+            });
+            
+            document.getElementById('endpoint').textContent = uw.endpoint;
+            document.getElementById('version').textContent = '1.0.0';
+            document.getElementById('status').textContent = 'Ready';
+            
+            log('✅ SDK initialized successfully', 'success');
+        } catch (error) {
+            log('❌ SDK initialization failed: ' + error.message, 'error');
+            document.getElementById('status').textContent = 'Failed';
+        }
+
+        function log(message, type = 'info') {
+            const timestamp = new Date().toLocaleTimeString();
+            const logEntry = document.createElement('div');
+            logEntry.className = `status ${type}`;
+            logEntry.innerHTML = `<strong>[${timestamp}]</strong> ${message}`;
+            logs.appendChild(logEntry);
+            logs.scrollTop = logs.scrollHeight;
+        }
+
+        function testBasicTracking() {
+            log('🧪 Testing basic event tracking...', 'info');
+            
+            try {
+                uw.track('page_view', {
+                    page_title: 'SDK Test Page',
+                    page_url: window.location.href,
+                    referrer: document.referrer
+                });
+                
+                uw.track('button_click', {
+                    button_name: 'Test Basic Tracking',
+                    timestamp: new Date().toISOString()
+                });
+                
+                log('✅ Basic tracking events sent', 'success');
+            } catch (error) {
+                log('❌ Basic tracking failed: ' + error.message, 'error');
+            }
+        }
+
+        function testUserIdentification() {
+            log('🧪 Testing user identification...', 'info');
+            
+            try {
+                uw.identify('test-user-12345', {
+                    email: 'testuser@example.com',
+                    name: 'Test User',
+                    plan: 'free',
+                    signupDate: '2024-01-01'
+                });
+                
+                log('✅ User identification successful', 'success');
+            } catch (error) {
+                log('❌ User identification failed: ' + error.message, 'error');
+            }
+        }
+
+        function testCustomEvents() {
+            log('🧪 Testing custom events...', 'info');
+            
+            try {
+                // E-commerce events
+                uw.track('product_viewed', {
+                    product_id: 'prod-123',
+                    product_name: 'Premium Plan',
+                    category: 'subscription',
+                    price: 29.99
+                });
+                
+                // Feature usage events
+                uw.track('feature_used', {
+                    feature_name: 'ai_content_generation',
+                    usage_count: 1,
+                    success: true
+                });
+                
+                // Engagement events
+                uw.track('engagement_score', {
+                    score: 0.85,
+                    factors: ['email_opens', 'click_through', 'time_on_page']
+                });
+                
+                log('✅ Custom events sent successfully', 'success');
+            } catch (error) {
+                log('❌ Custom events failed: ' + error.message, 'error');
+            }
+        }
+
+        function testBatchingAndFlushing() {
+            log('🧪 Testing batching and flushing...', 'info');
+            
+            try {
+                // Send multiple events quickly to test batching
+                for (let i = 0; i < 8; i++) {
+                    uw.track('batch_test_event', {
+                        event_number: i + 1,
+                        timestamp: Date.now()
+                    });
+                }
+                
+                log('📦 Sent 8 events for batch testing', 'info');
+                
+                // Force flush
+                setTimeout(() => {
+                    uw.flush();
+                    log('💾 Forced flush executed', 'info');
+                }, 1000);
+                
+                log('✅ Batching and flushing test completed', 'success');
+            } catch (error) {
+                log('❌ Batching test failed: ' + error.message, 'error');
+            }
+        }
+
+        function testErrorHandling() {
+            log('🧪 Testing error handling...', 'info');
+            
+            try {
+                // Test invalid event data
+                uw.track('', null);
+                log('⚠️ Invalid event data handled gracefully', 'info');
+                
+                // Test extremely large payload
+                const largeData = { bigData: 'x'.repeat(10000) };
+                uw.track('large_payload_test', largeData);
+                log('⚠️ Large payload handled', 'info');
+                
+                log('✅ Error handling tests passed', 'success');
+            } catch (error) {
+                log('❌ Error handling test failed: ' + error.message, 'error');
+            }
+        }
+
+        async function runFullIntegrationTest() {
+            log('🚀 Starting full integration test...', 'info');
+            
+            try {
+                // 1. Initialize user session
+                uw.identify('integration-test-user', {
+                    email: 'integration@test.com',
+                    plan: 'premium',
+                    testMode: true
+                });
+                
+                // 2. Simulate user journey
+                const userJourney = [
+                    { event: 'app_opened', properties: { source: 'direct' } },
+                    { event: 'dashboard_viewed', properties: { section: 'analytics' } },
+                    { event: 'feature_explored', properties: { feature: 'ai_insights' } },
+                    { event: 'action_taken', properties: { action: 'generate_content' } },
+                    { event: 'result_viewed', properties: { satisfaction: 'high' } }
+                ];
+                
+                for (const step of userJourney) {
+                    uw.track(step.event, {
+                        ...step.properties,
+                        journey_step: userJourney.indexOf(step) + 1,
+                        timestamp: Date.now()
+                    });
+                    
+                    // Small delay to simulate real user behavior
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                }
+                
+                // 3. Test performance tracking
+                uw.track('performance_metric', {
+                    page_load_time: 1200,
+                    first_contentful_paint: 800,
+                    largest_contentful_paint: 1100
+                });
+                
+                // 4. Force final flush
+                uw.flush();
+                
+                log('🎉 Full integration test completed successfully!', 'success');
+                log('📊 Check your User Whisperer dashboard for test data', 'info');
+                
+            } catch (error) {
+                log('❌ Integration test failed: ' + error.message, 'error');
+            }
+        }
+
+        // Auto-run basic test on page load
+        window.addEventListener('load', () => {
+            setTimeout(() => {
+                testBasicTracking();
+            }, 1000);
+        });
+    </script>
+</body>
+</html>

@@ -1,0 +1,640 @@
+# Jaeger Distributed Tracing for User Whisperer Platform
+# Production-ready deployment with Elasticsearch backend and advanced configuration
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: jaeger-operator
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger-operator
+    component: tracing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: jaeger-operator
+  template:
+    metadata:
+      labels:
+        app: jaeger-operator
+        component: tracing
+    spec:
+      serviceAccountName: jaeger-operator
+      containers:
+      - name: jaeger-operator
+        image: jaegertracing/jaeger-operator:1.51.0
+        ports:
+        - containerPort: 8080
+          name: metrics
+        - containerPort: 9443
+          name: webhook
+        env:
+        - name: WATCH_NAMESPACE
+          value: "userwhisperer-monitoring"
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: OPERATOR_NAME
+          value: "jaeger-operator"
+        resources:
+          limits:
+            memory: 512Mi
+            cpu: 500m
+          requests:
+            memory: 256Mi
+            cpu: 100m
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 8080
+          initialDelaySeconds: 30
+          periodSeconds: 20
+        readinessProbe:
+          httpGet:
+            path: /readyz
+            port: 8080
+          initialDelaySeconds: 5
+          periodSeconds: 10
+
+---
+# Jaeger Custom Resource
+apiVersion: jaegertracing.io/v1
+kind: Jaeger
+metadata:
+  name: userwhisperer-jaeger
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger
+    component: tracing
+spec:
+  strategy: production
+  
+  # Storage configuration
+  storage:
+    type: elasticsearch
+    elasticsearch:
+      nodeCount: 3
+      redundancyPolicy: SingleRedundancy
+      storage:
+        storageClassName: userwhisperer-fast-ssd
+        size: 100Gi
+      resources:
+        requests:
+          memory: 2Gi
+          cpu: 1
+        limits:
+          memory: 4Gi
+          cpu: 2
+    esIndexCleaner:
+      enabled: true
+      numberOfDays: 7
+      schedule: "55 23 * * *"
+  
+  # Collector configuration
+  collector:
+    replicas: 3
+    maxReplicas: 10
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 250m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+    options:
+      collector:
+        zipkin:
+          host-port: ":9411"
+        otlp:
+          grpc:
+            host-port: ":4317"
+          http:
+            host-port: ":4318"
+      log-level: info
+      
+  # Query configuration
+  query:
+    replicas: 2
+    resources:
+      requests:
+        memory: 256Mi
+        cpu: 100m
+      limits:
+        memory: 512Mi
+        cpu: 200m
+    options:
+      query:
+        base-path: /jaeger
+        log-level: info
+        max-traces: 1000
+        default-lookback: 72h
+  
+  # Agent configuration (deprecated but kept for compatibility)
+  agent:
+    strategy: DaemonSet
+    resources:
+      requests:
+        memory: 128Mi
+        cpu: 50m
+      limits:
+        memory: 256Mi
+        cpu: 100m
+    options:
+      agent:
+        log-level: info
+  
+  # Ingester configuration for Kafka (if using Kafka for buffering)
+  ingester:
+    replicas: 2
+    resources:
+      requests:
+        memory: 512Mi
+        cpu: 250m
+      limits:
+        memory: 1Gi
+        cpu: 500m
+    options:
+      ingester:
+        deadlockInterval: 1m0s
+        log-level: info
+
+---
+# Jaeger Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-query
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger
+    component: query
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "16687"
+    prometheus.io/path: "/metrics"
+spec:
+  ports:
+  - name: query-http
+    port: 16686
+    protocol: TCP
+    targetPort: 16686
+  - name: query-grpc
+    port: 16685
+    protocol: TCP
+    targetPort: 16685
+  - name: admin-http
+    port: 14269
+    protocol: TCP
+    targetPort: 14269
+  - name: metrics
+    port: 16687
+    protocol: TCP
+    targetPort: 16687
+  selector:
+    app: jaeger
+    component: query
+  type: ClusterIP
+
+---
+# Jaeger Collector Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-collector
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger
+    component: collector
+  annotations:
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "14269"
+    prometheus.io/path: "/metrics"
+spec:
+  ports:
+  - name: jaeger-thrift-compact
+    port: 6831
+    protocol: UDP
+    targetPort: 6831
+  - name: jaeger-thrift-binary
+    port: 6832
+    protocol: UDP
+    targetPort: 6832
+  - name: jaeger-thrift-http
+    port: 14268
+    protocol: TCP
+    targetPort: 14268
+  - name: jaeger-grpc
+    port: 14250
+    protocol: TCP
+    targetPort: 14250
+  - name: zipkin
+    port: 9411
+    protocol: TCP
+    targetPort: 9411
+  - name: otlp-grpc
+    port: 4317
+    protocol: TCP
+    targetPort: 4317
+  - name: otlp-http
+    port: 4318
+    protocol: TCP
+    targetPort: 4318
+  - name: admin-http
+    port: 14269
+    protocol: TCP
+    targetPort: 14269
+  selector:
+    app: jaeger
+    component: collector
+  type: ClusterIP
+
+---
+# Jaeger Agent Service (DaemonSet)
+apiVersion: v1
+kind: Service
+metadata:
+  name: jaeger-agent
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger
+    component: agent
+spec:
+  clusterIP: None
+  ports:
+  - name: agent-zipkin-thrift
+    port: 5775
+    protocol: UDP
+    targetPort: 5775
+  - name: agent-compact
+    port: 6831
+    protocol: UDP
+    targetPort: 6831
+  - name: agent-binary
+    port: 6832
+    protocol: UDP
+    targetPort: 6832
+  - name: agent-configs
+    port: 5778
+    protocol: TCP
+    targetPort: 5778
+  - name: admin-http
+    port: 14271
+    protocol: TCP
+    targetPort: 14271
+  selector:
+    app: jaeger
+    component: agent
+
+---
+# Service Account for Jaeger Operator
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jaeger-operator
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger-operator
+
+---
+# ClusterRole for Jaeger Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jaeger-operator
+  labels:
+    app: jaeger-operator
+rules:
+- apiGroups:
+  - ""
+  resources:
+  - configmaps
+  - persistentvolumeclaims
+  - pods
+  - secrets
+  - serviceaccounts
+  - services
+  - services/finalizers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - apps
+  resources:
+  - daemonsets
+  - deployments
+  - replicasets
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - batch
+  resources:
+  - cronjobs
+  - jobs
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - autoscaling
+  resources:
+  - horizontalpodautoscalers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - jaegertracing.io
+  resources:
+  - jaegers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - jaegertracing.io
+  resources:
+  - jaegers/status
+  verbs:
+  - get
+  - patch
+  - update
+- apiGroups:
+  - jaegertracing.io
+  resources:
+  - jaegers/finalizers
+  verbs:
+  - update
+- apiGroups:
+  - logging.coreos.com
+  resources:
+  - elasticsearches
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - kafka.strimzi.io
+  resources:
+  - kafkas
+  - kafkatopics
+  - kafkausers
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+
+---
+# ClusterRoleBinding for Jaeger Operator
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jaeger-operator
+  labels:
+    app: jaeger-operator
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jaeger-operator
+subjects:
+- kind: ServiceAccount
+  name: jaeger-operator
+  namespace: userwhisperer-monitoring
+
+---
+# Ingress for Jaeger UI
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: jaeger-ingress
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger
+    component: query
+  annotations:
+    kubernetes.io/ingress.class: "nginx"
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/auth-type: basic
+    nginx.ingress.kubernetes.io/auth-secret: jaeger-auth
+    nginx.ingress.kubernetes.io/auth-realm: "Authentication Required - Jaeger"
+    cert-manager.io/cluster-issuer: "letsencrypt-prod"
+spec:
+  tls:
+  - hosts:
+    - jaeger.userwhisperer.ai
+    secretName: jaeger-tls
+  rules:
+  - host: jaeger.userwhisperer.ai
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: jaeger-query
+            port:
+              number: 16686
+
+---
+# HorizontalPodAutoscaler for Jaeger Collector
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: jaeger-collector-hpa
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger
+    component: collector
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: userwhisperer-jaeger-collector
+  minReplicas: 3
+  maxReplicas: 20
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 70
+  - type: Resource
+    resource:
+      name: memory
+      target:
+        type: Utilization
+        averageUtilization: 80
+  behavior:
+    scaleDown:
+      stabilizationWindowSeconds: 300
+      policies:
+      - type: Percent
+        value: 50
+        periodSeconds: 60
+    scaleUp:
+      stabilizationWindowSeconds: 60
+      policies:
+      - type: Percent
+        value: 100
+        periodSeconds: 30
+
+---
+# ConfigMap for Jaeger Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: jaeger-config
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger
+data:
+  # Sampling strategies for different services
+  sampling_strategies.json: |
+    {
+      "service_strategies": [
+        {
+          "service": "event-ingestion",
+          "type": "probabilistic",
+          "param": 0.1,
+          "max_traces_per_second": 1000
+        },
+        {
+          "service": "behavioral-analysis",
+          "type": "probabilistic",
+          "param": 0.2,
+          "max_traces_per_second": 500
+        },
+        {
+          "service": "decision-engine",
+          "type": "probabilistic",
+          "param": 0.5,
+          "max_traces_per_second": 200
+        },
+        {
+          "service": "content-generation",
+          "type": "probabilistic",
+          "param": 1.0,
+          "max_traces_per_second": 100
+        },
+        {
+          "service": "channel-orchestration",
+          "type": "probabilistic",
+          "param": 0.3,
+          "max_traces_per_second": 300
+        },
+        {
+          "service": "api-gateway",
+          "type": "probabilistic",
+          "param": 0.05,
+          "max_traces_per_second": 2000
+        }
+      ],
+      "default_strategy": {
+        "type": "probabilistic",
+        "param": 0.1,
+        "max_traces_per_second": 100
+      },
+      "per_operation_strategies": [
+        {
+          "service": "api-gateway",
+          "operation": "health-check",
+          "type": "probabilistic",
+          "param": 0.01
+        },
+        {
+          "service": "api-gateway",
+          "operation": "metrics",
+          "type": "probabilistic",
+          "param": 0.01
+        }
+      ]
+    }
+  
+  # UI configuration
+  ui-config.json: |
+    {
+      "dependencies": {
+        "dagMaxNumServices": 200,
+        "menuEnabled": true
+      },
+      "archiveEnabled": true,
+      "tracking": {
+        "gaID": null,
+        "trackErrors": true
+      },
+      "menu": [
+        {
+          "label": "Documentation",
+          "url": "https://docs.userwhisperer.ai/observability/tracing"
+        },
+        {
+          "label": "Grafana",
+          "url": "https://grafana.userwhisperer.ai"
+        }
+      ],
+      "search": {
+        "maxLookback": {
+          "label": "2 Days",
+          "value": "2d"
+        }
+      }
+    }
+
+---
+# Secret for Jaeger UI Authentication
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jaeger-auth
+  namespace: userwhisperer-monitoring
+  labels:
+    app: jaeger
+type: Opaque
+data:
+  # admin:$2y$10$... (bcrypt hash for "admin:secure_password")
+  auth: YWRtaW46JDJ5JDEwJE5vY2w1aTVkMnRjUUluTkZPdTVnZU8uL1ZtV01OcGc2RGIvSXBDOVVGYUpGejJCcjdnOXB1

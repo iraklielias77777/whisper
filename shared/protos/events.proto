@@ -1,0 +1,157 @@
+syntax = "proto3";
+
+package userwhisperer.events;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/userwhisperer/platform/protos/events";
+
+// Event service for processing user events
+service EventService {
+  // Ingest a single event
+  rpc IngestEvent(IngestEventRequest) returns (IngestEventResponse);
+  
+  // Batch ingest multiple events
+  rpc IngestEventBatch(IngestEventBatchRequest) returns (IngestEventBatchResponse);
+  
+  // Get event by ID
+  rpc GetEvent(GetEventRequest) returns (Event);
+  
+  // Query events
+  rpc QueryEvents(QueryEventsRequest) returns (QueryEventsResponse);
+  
+  // Stream events in real-time
+  rpc StreamEvents(StreamEventsRequest) returns (stream Event);
+  
+  // Get event statistics
+  rpc GetEventStats(GetEventStatsRequest) returns (EventStatsResponse);
+}
+
+// Core event structure
+message Event {
+  string event_id = 1;
+  string app_id = 2;
+  string user_id = 3;
+  string session_id = 4;
+  string event_type = 5;
+  google.protobuf.Timestamp timestamp = 6;
+  google.protobuf.Struct properties = 7;
+  EventContext context = 8;
+  EventMetadata metadata = 9;
+}
+
+// Event context information
+message EventContext {
+  string ip = 1;
+  string user_agent = 2;
+  string referrer = 3;
+  string utm_source = 4;
+  string utm_medium = 5;
+  string utm_campaign = 6;
+  string device_type = 7;
+  string browser = 8;
+  string browser_version = 9;
+  string os = 10;
+  string os_version = 11;
+  string screen_resolution = 12;
+  string timezone = 13;
+  string locale = 14;
+  string app_version = 15;
+  string sdk_version = 16;
+}
+
+// Event metadata
+message EventMetadata {
+  google.protobuf.Timestamp received_at = 1;
+  google.protobuf.Timestamp processed_at = 2;
+  string schema_version = 3;
+  string source = 4;
+  string batch_id = 5;
+  string correlation_id = 6;
+  bool enriched = 7;
+  bool deduplicated = 8;
+}
+
+// Request/Response messages
+message IngestEventRequest {
+  Event event = 1;
+  bool validate_only = 2;
+}
+
+message IngestEventResponse {
+  string event_id = 1;
+  bool success = 2;
+  string status = 3; // accepted, duplicate, quarantined, error
+  string error_message = 4;
+  repeated string validation_errors = 5;
+}
+
+message IngestEventBatchRequest {
+  repeated Event events = 1;
+  string batch_id = 2;
+  bool validate_only = 3;
+}
+
+message IngestEventBatchResponse {
+  repeated IngestEventResponse results = 1;
+  string batch_id = 2;
+  int32 total_count = 3;
+  int32 success_count = 4;
+  int32 error_count = 5;
+}
+
+message GetEventRequest {
+  string event_id = 1;
+}
+
+message QueryEventsRequest {
+  string app_id = 1;
+  string user_id = 2;
+  repeated string event_types = 3;
+  google.protobuf.Timestamp start_time = 4;
+  google.protobuf.Timestamp end_time = 5;
+  int32 limit = 6;
+  string cursor = 7;
+  string order_by = 8; // timestamp_asc, timestamp_desc
+}
+
+message QueryEventsResponse {
+  repeated Event events = 1;
+  string next_cursor = 2;
+  bool has_more = 3;
+  int32 total_count = 4;
+}
+
+message StreamEventsRequest {
+  string app_id = 1;
+  string user_id = 2;
+  repeated string event_types = 3;
+  google.protobuf.Timestamp start_time = 4;
+}
+
+message GetEventStatsRequest {
+  string app_id = 1;
+  string user_id = 2;
+  google.protobuf.Timestamp start_time = 3;
+  google.protobuf.Timestamp end_time = 4;
+  string granularity = 5; // hour, day, week, month
+}
+
+message EventStatsResponse {
+  int64 total_events = 1;
+  int64 unique_users = 2;
+  int64 unique_sessions = 3;
+  repeated EventTypeCount event_type_counts = 4;
+  repeated TimeSeriesPoint time_series = 5;
+}
+
+message EventTypeCount {
+  string event_type = 1;
+  int64 count = 2;
+}
+
+message TimeSeriesPoint {
+  google.protobuf.Timestamp timestamp = 1;
+  int64 count = 2;
+} 

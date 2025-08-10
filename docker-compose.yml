@@ -1,0 +1,300 @@
+services:
+  # Core Databases
+  postgres:
+    image: postgres:15-alpine
+    container_name: uw-postgres
+    environment:
+      POSTGRES_DB: userwhisperer_dev
+      POSTGRES_USER: uwdev
+      POSTGRES_PASSWORD: localdev123
+      POSTGRES_INITDB_ARGS: "--encoding=UTF-8 --lc-collate=C --lc-ctype=C"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/sql/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U uwdev -d userwhisperer_dev"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - user-whisperer
+
+  redis:
+    image: redis:7-alpine
+    container_name: uw-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes --maxmemory 512mb --maxmemory-policy allkeys-lru
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - user-whisperer
+
+  # Message Queue (Local Pub/Sub Emulator)
+  pubsub-emulator:
+    image: gcr.io/google.com/cloudsdktool/cloud-sdk:latest
+    container_name: uw-pubsub
+    command: >
+      sh -c "gcloud beta emulators pubsub start 
+             --project=user-whisperer-dev 
+             --host-port=0.0.0.0:8085 
+             --verbosity=info"
+    ports:
+      - "8085:8085"
+    environment:
+      PUBSUB_PROJECT_ID: user-whisperer-dev
+    networks:
+      - user-whisperer
+
+  # Monitoring & Observability
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: uw-prometheus
+    ports:
+      - "9090:9090"
+    volumes:
+      - ./infrastructure/monitoring/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+      - '--web.console.libraries=/etc/prometheus/console_libraries'
+      - '--web.console.templates=/etc/prometheus/consoles'
+      - '--storage.tsdb.retention.time=200h'
+      - '--web.enable-lifecycle'
+      - '--web.enable-admin-api'
+    networks:
+      - user-whisperer
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: uw-grafana
+    ports:
+      - "3006:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./infrastructure/monitoring/grafana/dashboards:/etc/grafana/provisioning/dashboards:ro
+      - ./infrastructure/monitoring/grafana/datasources:/etc/grafana/provisioning/datasources:ro
+    depends_on:
+      - prometheus
+    networks:
+      - user-whisperer
+
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: uw-jaeger
+    ports:
+      - "16686:16686"
+      - "14268:14268"
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+      - JAEGER_DISABLED=false
+    networks:
+      - user-whisperer
+
+  # Application Services
+  event-ingestion:
+    build:
+      context: .
+      dockerfile: ./services/event-ingestion/Dockerfile
+    container_name: uw-event-ingestion
+    ports:
+      - "3001:3001"
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_URL=postgresql://uwdev:localdev123@postgres:5432/userwhisperer_dev
+      - REDIS_URL=redis://redis:6379
+      - PUBSUB_EMULATOR_HOST=pubsub-emulator:8085
+      - LOG_LEVEL=debug
+      - RATE_LIMIT_ENABLED=true
+      - METRICS_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      pubsub-emulator:
+        condition: service_started
+    networks:
+      - user-whisperer
+    restart: unless-stopped
+
+  behavioral-analysis:
+    build:
+      context: .
+      dockerfile: ./services/behavioral-analysis/Dockerfile
+    container_name: uw-behavioral-analysis
+    ports:
+      - "3002:3002"
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_URL=postgresql://uwdev:localdev123@postgres:5432/userwhisperer_dev
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=debug
+      - METRICS_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - user-whisperer
+    restart: unless-stopped
+
+  decision-engine:
+    build:
+      context: .
+      dockerfile: ./services/decision-engine/Dockerfile
+    container_name: uw-decision-engine
+    ports:
+      - "3003:3003"
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_URL=postgresql://uwdev:localdev123@postgres:5432/userwhisperer_dev
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=debug
+      - METRICS_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - user-whisperer
+    restart: unless-stopped
+
+  content-generation:
+    build:
+      context: .
+      dockerfile: ./services/content-generation/Dockerfile
+    container_name: uw-content-generation
+    ports:
+      - "3004:3004"
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_URL=postgresql://uwdev:localdev123@postgres:5432/userwhisperer_dev
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=debug
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-dev-mock}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-sk-ant-dev-mock}
+      - METRICS_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - user-whisperer
+    restart: unless-stopped
+
+  channel-orchestrator:
+    build:
+      context: .
+      dockerfile: ./services/channel-orchestrator/Dockerfile
+    container_name: uw-channel-orchestrator
+    ports:
+      - "3005:3005"
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_URL=postgresql://uwdev:localdev123@postgres:5432/userwhisperer_dev
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=debug
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY:-SG.dev.mock}
+      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID:-ACdev}
+      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN:-devtoken}
+      - FIREBASE_SERVICE_ACCOUNT_PATH=/app/firebase-service-account.json
+      - METRICS_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - user-whisperer
+    restart: unless-stopped
+
+  ai-orchestration:
+    build:
+      context: .
+      dockerfile: ./services/ai-orchestration/Dockerfile
+    container_name: uw-ai-orchestration
+    ports:
+      - "3006:3006"
+    environment:
+      - NODE_ENV=development
+      - POSTGRES_URL=postgresql://uwdev:localdev123@postgres:5432/userwhisperer_dev
+      - REDIS_URL=redis://redis:6379
+      - LOG_LEVEL=debug
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-sk-dev-mock}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-sk-ant-dev-mock}
+      - METRICS_ENABLED=true
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    networks:
+      - user-whisperer
+    restart: unless-stopped
+
+  # API Gateway
+  kong:
+    image: kong:latest
+    container_name: uw-kong
+    environment:
+      - KONG_DATABASE=off
+      - KONG_DECLARATIVE_CONFIG=/kong/kong.yml
+      - KONG_PROXY_ACCESS_LOG=/dev/stdout
+      - KONG_ADMIN_ACCESS_LOG=/dev/stdout
+      - KONG_PROXY_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_ERROR_LOG=/dev/stderr
+      - KONG_ADMIN_LISTEN=0.0.0.0:8001
+      - KONG_PROXY_LISTEN=0.0.0.0:8000
+      - KONG_PLUGINS=bundled,rate-limiting,cors,key-auth,ip-restriction,http-log,prometheus
+    ports:
+      - "8000:8000"  # Kong Proxy
+      - "8001:8001"  # Kong Admin API
+    volumes:
+      - ./infrastructure/kong/kong.yml:/kong/kong.yml:ro
+    depends_on:
+      - redis
+      - event-ingestion
+      - behavioral-analysis
+      - decision-engine
+      - content-generation
+      - channel-orchestrator
+      - ai-orchestration
+    networks:
+      - user-whisperer
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "kong", "health"]
+      interval: 30s
+      timeout: 30s
+      retries: 3
+
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+  grafana_data:
+    driver: local
+  prometheus_data:
+    driver: local
+
+networks:
+  user-whisperer:
+    driver: bridge
+    name: user-whisperer-dev 

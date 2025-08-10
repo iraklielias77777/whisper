@@ -1,0 +1,291 @@
+# API Gateway Alerting Rules
+groups:
+  - name: api-gateway
+    rules:
+      # High error rate
+      - alert: APIGatewayHighErrorRate
+        expr: |
+          (
+            sum(rate(api_requests_total{status=~"5.."}[5m])) /
+            sum(rate(api_requests_total[5m]))
+          ) * 100 > 5
+        for: 2m
+        labels:
+          severity: critical
+          service: api-gateway
+        annotations:
+          summary: "API Gateway has high error rate"
+          description: "API Gateway error rate is {{ $value }}% over the last 5 minutes"
+
+      # High response time
+      - alert: APIGatewayHighLatency
+        expr: |
+          histogram_quantile(0.95, 
+            sum(rate(api_request_duration_seconds_bucket[5m])) by (le)
+          ) > 2
+        for: 5m
+        labels:
+          severity: warning
+          service: api-gateway
+        annotations:
+          summary: "API Gateway has high response time"
+          description: "API Gateway 95th percentile latency is {{ $value }}s"
+
+      # High request rate
+      - alert: APIGatewayHighRequestRate
+        expr: |
+          sum(rate(api_requests_total[5m])) > 1000
+        for: 2m
+        labels:
+          severity: warning
+          service: api-gateway
+        annotations:
+          summary: "API Gateway receiving high request rate"
+          description: "API Gateway is receiving {{ $value }} requests/second"
+
+      # Service down
+      - alert: APIGatewayDown
+        expr: up{job="api-gateway"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: api-gateway
+        annotations:
+          summary: "API Gateway is down"
+          description: "API Gateway has been down for more than 1 minute"
+
+      # High memory usage
+      - alert: APIGatewayHighMemoryUsage
+        expr: |
+          (
+            process_resident_memory_bytes{job="api-gateway"} /
+            container_spec_memory_limit_bytes{container="api-gateway"}
+          ) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: api-gateway
+        annotations:
+          summary: "API Gateway high memory usage"
+          description: "API Gateway memory usage is {{ $value }}%"
+
+      # High CPU usage
+      - alert: APIGatewayHighCPUUsage
+        expr: |
+          rate(process_cpu_seconds_total{job="api-gateway"}[5m]) * 100 > 80
+        for: 5m
+        labels:
+          severity: warning
+          service: api-gateway
+        annotations:
+          summary: "API Gateway high CPU usage"
+          description: "API Gateway CPU usage is {{ $value }}%"
+
+      # Rate limit threshold
+      - alert: APIGatewayRateLimitHit
+        expr: |
+          increase(api_rate_limit_exceeded_total[5m]) > 100
+        for: 1m
+        labels:
+          severity: warning
+          service: api-gateway
+        annotations:
+          summary: "API Gateway rate limits being hit frequently"
+          description: "{{ $value }} rate limit violations in the last 5 minutes"
+
+      # Authentication failures
+      - alert: APIGatewayAuthFailures
+        expr: |
+          increase(api_auth_failures_total[5m]) > 50
+        for: 2m
+        labels:
+          severity: warning
+          service: api-gateway
+        annotations:
+          summary: "High authentication failure rate"
+          description: "{{ $value }} authentication failures in the last 5 minutes"
+
+  - name: event-ingestion
+    rules:
+      # Event ingestion lag
+      - alert: EventIngestionLag
+        expr: |
+          event_ingestion_lag_seconds > 30
+        for: 2m
+        labels:
+          severity: critical
+          service: event-ingestion
+        annotations:
+          summary: "Event ingestion lag is high"
+          description: "Event ingestion lag is {{ $value }} seconds"
+
+      # High event drop rate
+      - alert: HighEventDropRate
+        expr: |
+          (
+            sum(rate(events_dropped_total[5m])) /
+            sum(rate(events_received_total[5m]))
+          ) * 100 > 1
+        for: 3m
+        labels:
+          severity: critical
+          service: event-ingestion
+        annotations:
+          summary: "High event drop rate"
+          description: "{{ $value }}% of events are being dropped"
+
+      # Queue size growing
+      - alert: EventQueueSizeGrowing
+        expr: |
+          increase(event_queue_size[10m]) > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: event-ingestion
+        annotations:
+          summary: "Event queue size is growing"
+          description: "Event queue has grown by {{ $value }} events in 10 minutes"
+
+      # Service down
+      - alert: EventIngestionDown
+        expr: up{job="event-ingestion"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: event-ingestion
+        annotations:
+          summary: "Event Ingestion service is down"
+          description: "Event Ingestion service has been down for more than 1 minute"
+
+  - name: behavioral-analysis
+    rules:
+      # Analysis processing lag
+      - alert: BehavioralAnalysisLag
+        expr: |
+          behavioral_analysis_lag_seconds > 60
+        for: 3m
+        labels:
+          severity: warning
+          service: behavioral-analysis
+        annotations:
+          summary: "Behavioral analysis processing lag"
+          description: "Behavioral analysis lag is {{ $value }} seconds"
+
+      # Model inference errors
+      - alert: ModelInferenceErrors
+        expr: |
+          increase(model_inference_errors_total[5m]) > 10
+        for: 2m
+        labels:
+          severity: warning
+          service: behavioral-analysis
+        annotations:
+          summary: "High model inference error rate"
+          description: "{{ $value }} model inference errors in 5 minutes"
+
+      # Service down
+      - alert: BehavioralAnalysisDown
+        expr: up{job="behavioral-analysis"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: behavioral-analysis
+        annotations:
+          summary: "Behavioral Analysis service is down"
+          description: "Behavioral Analysis service has been down for more than 2 minutes"
+
+  - name: decision-engine
+    rules:
+      # Decision processing lag
+      - alert: DecisionProcessingLag
+        expr: |
+          decision_processing_lag_seconds > 30
+        for: 2m
+        labels:
+          severity: critical
+          service: decision-engine
+        annotations:
+          summary: "Decision processing lag is high"
+          description: "Decision processing lag is {{ $value }} seconds"
+
+      # High decision error rate
+      - alert: HighDecisionErrorRate
+        expr: |
+          (
+            sum(rate(decisions_errors_total[5m])) /
+            sum(rate(decisions_total[5m]))
+          ) * 100 > 5
+        for: 3m
+        labels:
+          severity: warning
+          service: decision-engine
+        annotations:
+          summary: "High decision error rate"
+          description: "{{ $value }}% of decisions are failing"
+
+      # Service down
+      - alert: DecisionEngineDown
+        expr: up{job="decision-engine"} == 0
+        for: 1m
+        labels:
+          severity: critical
+          service: decision-engine
+        annotations:
+          summary: "Decision Engine is down"
+          description: "Decision Engine has been down for more than 1 minute"
+
+  - name: infrastructure
+    rules:
+      # Database connection issues
+      - alert: DatabaseConnectionIssues
+        expr: |
+          increase(database_connection_errors_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: critical
+          service: database
+        annotations:
+          summary: "Database connection issues"
+          description: "{{ $value }} database connection errors in 5 minutes"
+
+      # Redis connection issues
+      - alert: RedisConnectionIssues
+        expr: |
+          increase(redis_connection_errors_total[5m]) > 5
+        for: 2m
+        labels:
+          severity: warning
+          service: redis
+        annotations:
+          summary: "Redis connection issues"
+          description: "{{ $value }} Redis connection errors in 5 minutes"
+
+      # High disk usage
+      - alert: HighDiskUsage
+        expr: |
+          (
+            node_filesystem_avail_bytes{mountpoint="/"} /
+            node_filesystem_size_bytes{mountpoint="/"}
+          ) * 100 < 10
+        for: 5m
+        labels:
+          severity: critical
+          service: infrastructure
+        annotations:
+          summary: "High disk usage"
+          description: "Disk usage is above 90% ({{ $value }}% free)"
+
+      # High memory usage
+      - alert: HighSystemMemoryUsage
+        expr: |
+          (
+            (node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes) /
+            node_memory_MemTotal_bytes
+          ) * 100 > 90
+        for: 5m
+        labels:
+          severity: critical
+          service: infrastructure
+        annotations:
+          summary: "High system memory usage"
+          description: "System memory usage is {{ $value }}%"

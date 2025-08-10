@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>User Whisperer JavaScript SDK Example</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            max-width: 800px;
+            margin: 0 auto;
+            padding: 20px;
+            line-height: 1.6;
+        }
+        .container {
+            background: #f5f5f5;
+            padding: 20px;
+            border-radius: 8px;
+            margin: 20px 0;
+        }
+        button {
+            background: #007cba;
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin: 5px;
+        }
+        button:hover {
+            background: #005a87;
+        }
+        .code {
+            background: #2d3748;
+            color: #e2e8f0;
+            padding: 15px;
+            border-radius: 4px;
+            overflow-x: auto;
+            font-family: 'Courier New', monospace;
+            white-space: pre-wrap;
+        }
+        .log {
+            background: #1a202c;
+            color: #68d391;
+            padding: 15px;
+            border-radius: 4px;
+            height: 200px;
+            overflow-y: auto;
+            font-family: monospace;
+            font-size: 12px;
+        }
+        input, select {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+        }
+    </style>
+</head>
+<body>
+    <h1>User Whisperer JavaScript SDK Example</h1>
+    
+    <div class="container">
+        <h2>1. SDK Configuration</h2>
+        <div class="code">
+// Initialize User Whisperer SDK
+const uw = new UserWhisperer({
+    apiKey: 'uw_demo_key_123456789abcdef',
+    appId: 'demo_app',
+    endpoint: 'https://api.userwhisperer.ai',
+    debug: true,
+    batchSize: 10,
+    flushInterval: 3000
+});
+        </div>
+    </div>
+
+    <div class="container">
+        <h2>2. User Identification</h2>
+        <label>User ID: <input type="text" id="userId" value="demo_user_123" /></label>
+        <label>Email: <input type="text" id="userEmail" value="demo@example.com" /></label>
+        <label>Name: <input type="text" id="userName" value="Demo User" /></label>
+        <br>
+        <button onclick="identifyUser()">Identify User</button>
+        <button onclick="aliasUser()">Alias User</button>
+        <button onclick="resetUser()">Reset User</button>
+    </div>
+
+    <div class="container">
+        <h2>3. Event Tracking</h2>
+        <label>Event Type: 
+            <select id="eventType">
+                <option value="page_viewed">Page Viewed</option>
+                <option value="button_clicked">Button Clicked</option>
+                <option value="feature_used">Feature Used</option>
+                <option value="purchase_completed">Purchase Completed</option>
+                <option value="form_submitted">Form Submitted</option>
+            </select>
+        </label>
+        <br>
+        <button onclick="trackEvent()">Track Event</button>
+        <button onclick="trackPageView()">Track Page View</button>
+        <button onclick="trackCustomEvent()">Track Custom Event</button>
+    </div>
+
+    <div class="container">
+        <h2>4. Bulk Operations</h2>
+        <button onclick="trackMultipleEvents()">Track Multiple Events</button>
+        <button onclick="simulateUserSession()">Simulate User Session</button>
+        <button onclick="flushEvents()">Flush Events Now</button>
+    </div>
+
+    <div class="container">
+        <h2>5. Advanced Features</h2>
+        <button onclick="groupUser()">Associate with Group</button>
+        <button onclick="testOfflineMode()">Test Offline Mode</button>
+        <button onclick="showSDKInfo()">Show SDK Info</button>
+    </div>
+
+    <div class="container">
+        <h2>Console Output</h2>
+        <div id="console" class="log"></div>
+        <button onclick="clearConsole()">Clear Console</button>
+    </div>
+
+    <!-- Include the User Whisperer SDK -->
+    <script src="../sdk/javascript/src/userwhisperer.js"></script>
+    
+    <script>
+        // Initialize the SDK
+        const uw = new UserWhisperer({
+            apiKey: 'uw_demo_key_123456789abcdef',
+            appId: 'demo_app',
+            endpoint: 'https://api.userwhisperer.ai',
+            debug: true,
+            batchSize: 10,
+            flushInterval: 3000,
+            enablePerformanceTracking: true,
+            autoTrack: true
+        });
+
+        // Set up event listeners
+        uw.on('event_queued', (data) => {
+            log(`🟡 Event queued: ${data.event_type}`);
+        });
+
+        uw.on('events_sent', (data) => {
+            log(`🟢 Events sent: ${data.events.length} events`);
+        });
+
+        uw.on('events_failed', (data) => {
+            log(`🔴 Events failed: ${data.error.message}`);
+        });
+
+        // Utility function for logging
+        function log(message) {
+            const console = document.getElementById('console');
+            const timestamp = new Date().toLocaleTimeString();
+            console.innerHTML += `[${timestamp}] ${message}\n`;
+            console.scrollTop = console.scrollHeight;
+        }
+
+        // User identification functions
+        function identifyUser() {
+            const userId = document.getElementById('userId').value;
+            const email = document.getElementById('userEmail').value;
+            const name = document.getElementById('userName').value;
+
+            uw.identify(userId, {
+                email: email,
+                name: name,
+                plan: 'demo',
+                signupDate: new Date().toISOString(),
+                source: 'demo_page'
+            });
+
+            log(`👤 User identified: ${userId} (${email})`);
+        }
+
+        function aliasUser() {
+            const currentUserId = uw.getUserId();
+            const newUserId = `aliased_${Date.now()}`;
+            
+            uw.alias(newUserId);
+            log(`🔄 User aliased: ${currentUserId} → ${newUserId}`);
+        }
+
+        function resetUser() {
+            uw.reset();
+            log(`🔄 User state reset - new anonymous user created`);
+        }
+
+        // Event tracking functions
+        function trackEvent() {
+            const eventType = document.getElementById('eventType').value;
+            
+            const properties = {
+                source: 'demo_page',
+                timestamp: new Date().toISOString(),
+                demo: true
+            };
+
+            // Add event-specific properties
+            switch(eventType) {
+                case 'page_viewed':
+                    properties.page = window.location.pathname;
+                    properties.title = document.title;
+                    break;
+                case 'button_clicked':
+                    properties.button_text = 'Demo Button';
+                    properties.button_id = 'demo_button';
+                    break;
+                case 'feature_used':
+                    properties.feature = 'sdk_demo';
+                    properties.version = '1.0.0';
+                    break;
+                case 'purchase_completed':
+                    properties.amount = 99.99;
+                    properties.currency = 'USD';
+                    properties.products = ['Demo Product'];
+                    break;
+                case 'form_submitted':
+                    properties.form_name = 'demo_form';
+                    properties.fields_completed = 3;
+                    break;
+            }
+
+            uw.track(eventType, properties);
+            log(`📊 Event tracked: ${eventType}`);
+        }
+
+        function trackPageView() {
+            uw.page('Demo Page', {
+                url: window.location.href,
+                referrer: document.referrer,
+                demo: true
+            });
+            log(`📄 Page view tracked: Demo Page`);
+        }
+
+        function trackCustomEvent() {
+            uw.track('custom_demo_event', {
+                custom_property: 'demo_value',
+                random_number: Math.floor(Math.random() * 100),
+                timestamp: Date.now(),
+                user_agent: navigator.userAgent,
+                screen_resolution: `${screen.width}x${screen.height}`
+            });
+            log(`🎯 Custom event tracked with random data`);
+        }
+
+        // Bulk operations
+        function trackMultipleEvents() {
+            const events = [
+                { type: 'session_started', properties: { source: 'demo' } },
+                { type: 'page_viewed', properties: { page: '/demo' } },
+                { type: 'button_clicked', properties: { button: 'demo_button_1' } },
+                { type: 'button_clicked', properties: { button: 'demo_button_2' } },
+                { type: 'feature_used', properties: { feature: 'bulk_tracking' } }
+            ];
+
+            events.forEach((event, index) => {
+                setTimeout(() => {
+                    uw.track(event.type, event.properties);
+                }, index * 100); // Stagger events slightly
+            });
+
+            log(`📦 Tracking ${events.length} events in bulk`);
+        }
+
+        function simulateUserSession() {
+            log(`🎬 Simulating user session...`);
+            
+            // Session start
+            uw.track('session_started', { source: 'demo' });
+            
+            // Page views
+            setTimeout(() => {
+                uw.page('Home Page', { path: '/' });
+            }, 500);
+            
+            setTimeout(() => {
+                uw.page('Features Page', { path: '/features' });
+            }, 1500);
+            
+            setTimeout(() => {
+                uw.page('Pricing Page', { path: '/pricing' });
+            }, 3000);
+            
+            // User interactions
+            setTimeout(() => {
+                uw.track('button_clicked', { button: 'get_started' });
+            }, 4000);
+            
+            setTimeout(() => {
+                uw.track('form_started', { form: 'signup' });
+            }, 5000);
+            
+            setTimeout(() => {
+                uw.track('form_submitted', { form: 'signup', success: true });
+            }, 6000);
+            
+            // Session end
+            setTimeout(() => {
+                uw.track('session_ended', { 
+                    duration: 6000,
+                    pages_viewed: 3,
+                    interactions: 3
+                });
+                log(`✅ User session simulation completed`);
+            }, 7000);
+        }
+
+        function flushEvents() {
+            uw.flush();
+            log(`🚀 Events flushed manually`);
+        }
+
+        // Advanced features
+        function groupUser() {
+            uw.group('demo_organization', {
+                name: 'Demo Organization',
+                plan: 'enterprise',
+                employees: 100,
+                industry: 'Technology'
+            });
+            log(`🏢 User associated with group: demo_organization`);
+        }
+
+        function testOfflineMode() {
+            // Simulate offline mode
+            Object.defineProperty(navigator, 'onLine', {
+                writable: true,
+                value: false
+            });
+            
+            uw.track('offline_test_event', { 
+                message: 'This event was tracked while offline' 
+            });
+            
+            log(`📴 Tracked event in offline mode (simulated)`);
+            
+            // Go back online after 3 seconds
+            setTimeout(() => {
+                Object.defineProperty(navigator, 'onLine', {
+                    writable: true,
+                    value: true
+                });
+                
+                // Trigger online event
+                window.dispatchEvent(new Event('online'));
+                log(`📶 Back online - retry queue should process`);
+            }, 3000);
+        }
+
+        function showSDKInfo() {
+            const info = {
+                userId: uw.getUserId(),
+                sessionId: uw.getSessionId(),
+                queueSize: uw.eventQueue ? uw.eventQueue.length : 'N/A',
+                retryQueueSize: uw.retryQueue ? uw.retryQueue.length : 'N/A',
+                isOnline: navigator.onLine
+            };
+            
+            log(`ℹ️ SDK Info: ${JSON.stringify(info, null, 2)}`);
+        }
+
+        function clearConsole() {
+            document.getElementById('console').innerHTML = '';
+        }
+
+        // Initialize demo
+        window.addEventListener('load', () => {
+            log(`🚀 User Whisperer SDK Demo loaded`);
+            log(`📱 SDK Version: 1.0.0`);
+            log(`🌐 Online: ${navigator.onLine}`);
+            
+            // Track initial page view
+            setTimeout(() => {
+                trackPageView();
+            }, 1000);
+        });
+
+        // Track page unload
+        window.addEventListener('beforeunload', () => {
+            uw.track('page_unload', {
+                time_on_page: Date.now() - performance.timing.navigationStart
+            });
+        });
+    </script>
+</body>
+</html>

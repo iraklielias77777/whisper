@@ -1,0 +1,58 @@
+{
+  "name": "@userwhisperer/behavioral-analysis",
+  "version": "1.0.0",
+  "description": "Behavioral Analysis Engine for User Whisperer Platform",
+  "main": "dist/index.js",
+  "scripts": {
+    "start": "node dist/index.js",
+    "dev": "ts-node-dev --respawn --transpile-only src/index.ts",
+    "build": "tsc",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@userwhisperer/shared": "file:../../shared",
+    "express": "^4.18.2",
+    "cors": "^2.8.5",
+    "helmet": "^7.1.0",
+    "express-rate-limit": "^7.1.5",
+    "prom-client": "^15.1.0",
+
+    "node-cron": "^3.0.3",
+    "uuid": "^9.0.1",
+    "date-fns": "^2.30.0",
+    "lodash": "^4.17.21"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/express": "^4.17.21",
+    "@types/cors": "^2.8.17",
+    "@types/uuid": "^9.0.7",
+    "@types/lodash": "^4.14.202",
+    "@types/jest": "^29.5.8",
+    "typescript": "^5.3.0",
+    "ts-node-dev": "^2.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.1",
+    "eslint": "^8.57.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^7.0.0"
+  },
+  "keywords": [
+    "behavioral-analysis",
+    "machine-learning",
+    "user-analytics",
+    "churn-prediction",
+    "pattern-detection"
+  ],
+  "author": "User Whisperer Team",
+  "license": "PROPRIETARY",
+  "engines": {
+    "node": ">=20.0.0",
+    "npm": ">=10.0.0"
+  }
+} 

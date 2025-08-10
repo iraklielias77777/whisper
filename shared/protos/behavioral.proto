@@ -1,0 +1,204 @@
+syntax = "proto3";
+
+package userwhisperer.behavioral;
+
+import "google/protobuf/timestamp.proto";
+import "google/protobuf/struct.proto";
+
+option go_package = "github.com/userwhisperer/platform/protos/behavioral";
+
+// Behavioral analysis service
+service BehavioralService {
+  // Analyze user behavior from event
+  rpc AnalyzeBehavior(AnalyzeBehaviorRequest) returns (AnalyzeBehaviorResponse);
+  
+  // Get user behavioral profile
+  rpc GetUserProfile(GetUserProfileRequest) returns (UserProfile);
+  
+  // Update user behavioral metrics
+  rpc UpdateUserMetrics(UpdateUserMetricsRequest) returns (UpdateUserMetricsResponse);
+  
+  // Calculate churn risk
+  rpc CalculateChurnRisk(CalculateChurnRiskRequest) returns (ChurnRiskResponse);
+  
+  // Get user lifecycle stage
+  rpc GetLifecycleStage(GetLifecycleStageRequest) returns (LifecycleStageResponse);
+  
+  // Detect behavioral patterns
+  rpc DetectPatterns(DetectPatternsRequest) returns (DetectPatternsResponse);
+  
+  // Get engagement scores
+  rpc GetEngagementScores(GetEngagementScoresRequest) returns (EngagementScoresResponse);
+}
+
+// User behavioral profile
+message UserProfile {
+  string user_id = 1;
+  string app_id = 2;
+  LifecycleStage lifecycle_stage = 3;
+  BehavioralMetrics metrics = 4;
+  repeated BehavioralPattern patterns = 5;
+  EngagementScores scores = 6;
+  UserSegment segment = 7;
+  google.protobuf.Timestamp created_at = 8;
+  google.protobuf.Timestamp updated_at = 9;
+  google.protobuf.Struct ml_features = 10;
+}
+
+// Lifecycle stages
+enum LifecycleStage {
+  LIFECYCLE_UNKNOWN = 0;
+  LIFECYCLE_ONBOARDING = 1;
+  LIFECYCLE_ACTIVATED = 2;
+  LIFECYCLE_POWER_USER = 3;
+  LIFECYCLE_AT_RISK = 4;
+  LIFECYCLE_CHURNED = 5;
+  LIFECYCLE_DORMANT = 6;
+  LIFECYCLE_REACTIVATED = 7;
+}
+
+// User segments
+enum UserSegment {
+  SEGMENT_UNKNOWN = 0;
+  SEGMENT_NEW_USER = 1;
+  SEGMENT_TRIAL_USER = 2;
+  SEGMENT_CONVERTING_USER = 3;
+  SEGMENT_PAYING_CUSTOMER = 4;
+  SEGMENT_CHAMPION = 5;
+  SEGMENT_AT_RISK = 6;
+  SEGMENT_CHURNED = 7;
+}
+
+// Behavioral metrics
+message BehavioralMetrics {
+  int32 session_count = 1;
+  double avg_session_duration = 2;
+  int32 days_since_last_activity = 3;
+  double feature_adoption_rate = 4;
+  int32 error_encounter_count = 5;
+  double engagement_trend = 6;
+  int32 support_ticket_count = 7;
+  double conversion_likelihood = 8;
+  int32 total_events = 9;
+  int32 days_since_signup = 10;
+  double monthly_active_score = 11;
+  double weekly_active_score = 12;
+  double daily_active_score = 13;
+  int32 feature_discovery_count = 14;
+  double onboarding_completion_rate = 15;
+  google.protobuf.Struct custom_metrics = 16;
+}
+
+// Behavioral patterns
+message BehavioralPattern {
+  string pattern_id = 1;
+  string pattern_type = 2;
+  string pattern_name = 3;
+  double confidence = 4;
+  double impact_score = 5;
+  google.protobuf.Struct parameters = 6;
+  google.protobuf.Timestamp detected_at = 7;
+  google.protobuf.Timestamp expires_at = 8;
+  bool is_active = 9;
+}
+
+// Engagement scores
+message EngagementScores {
+  double churn_risk = 1;
+  double engagement_level = 2;
+  double monetization_readiness = 3;
+  double feature_satisfaction = 4;
+  double support_satisfaction = 5;
+  double overall_health = 6;
+  double virality_score = 7;
+  double loyalty_score = 8;
+  double activation_score = 9;
+  double retention_probability = 10;
+}
+
+// Request/Response messages
+message AnalyzeBehaviorRequest {
+  string user_id = 1;
+  string app_id = 2;
+  google.protobuf.Struct event_data = 3;
+  bool update_profile = 4;
+}
+
+message AnalyzeBehaviorResponse {
+  UserProfile updated_profile = 1;
+  repeated string triggered_patterns = 2;
+  bool requires_intervention = 3;
+  double confidence = 4;
+  repeated string recommendations = 5;
+}
+
+message GetUserProfileRequest {
+  string user_id = 1;
+  string app_id = 2;
+  bool include_ml_features = 3;
+}
+
+message UpdateUserMetricsRequest {
+  string user_id = 1;
+  string app_id = 2;
+  BehavioralMetrics metrics = 3;
+}
+
+message UpdateUserMetricsResponse {
+  bool success = 1;
+  string error_message = 2;
+  UserProfile updated_profile = 3;
+}
+
+message CalculateChurnRiskRequest {
+  string user_id = 1;
+  string app_id = 2;
+  int32 prediction_days = 3; // predict churn in next N days
+}
+
+message ChurnRiskResponse {
+  double churn_risk_score = 1;
+  repeated string risk_factors = 2;
+  string risk_level = 3; // low, medium, high, critical
+  double confidence = 4;
+  repeated string recommendations = 5;
+  google.protobuf.Timestamp prediction_date = 6;
+}
+
+message GetLifecycleStageRequest {
+  string user_id = 1;
+  string app_id = 2;
+}
+
+message LifecycleStageResponse {
+  LifecycleStage current_stage = 1;
+  LifecycleStage predicted_next_stage = 2;
+  double stage_confidence = 3;
+  google.protobuf.Timestamp stage_since = 4;
+  repeated string stage_progression_factors = 5;
+}
+
+message DetectPatternsRequest {
+  string user_id = 1;
+  string app_id = 2;
+  repeated string pattern_types = 3;
+  bool include_inactive = 4;
+}
+
+message DetectPatternsResponse {
+  repeated BehavioralPattern patterns = 1;
+  int32 total_patterns = 2;
+  google.protobuf.Timestamp analyzed_at = 3;
+}
+
+message GetEngagementScoresRequest {
+  string user_id = 1;
+  string app_id = 2;
+  bool include_breakdown = 3;
+}
+
+message EngagementScoresResponse {
+  EngagementScores scores = 1;
+  google.protobuf.Struct score_breakdown = 2;
+  google.protobuf.Timestamp calculated_at = 3;
+} 

@@ -1,0 +1,766 @@
+# Comprehensive RBAC Configuration for User Whisperer Platform
+# Role-based access control with principle of least privilege
+
+# ==========================================
+# SERVICE ACCOUNTS
+# ==========================================
+
+# Event Ingestion Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: event-ingestion-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: event-ingestion
+    component: backend
+  annotations:
+    iam.gke.io/gcp-service-account: event-ingestion@userwhisperer-prod.iam.gserviceaccount.com
+
+---
+# Behavioral Analysis Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: behavioral-analysis-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: behavioral-analysis
+    component: backend
+  annotations:
+    iam.gke.io/gcp-service-account: behavioral-analysis@userwhisperer-prod.iam.gserviceaccount.com
+
+---
+# Decision Engine Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: decision-engine-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: decision-engine
+    component: backend
+  annotations:
+    iam.gke.io/gcp-service-account: decision-engine@userwhisperer-prod.iam.gserviceaccount.com
+
+---
+# Content Generation Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: content-generation-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: content-generation
+    component: backend
+  annotations:
+    iam.gke.io/gcp-service-account: content-generation@userwhisperer-prod.iam.gserviceaccount.com
+
+---
+# Channel Orchestration Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: channel-orchestration-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: channel-orchestration
+    component: backend
+  annotations:
+    iam.gke.io/gcp-service-account: channel-orchestration@userwhisperer-prod.iam.gserviceaccount.com
+
+---
+# API Gateway Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: api-gateway-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: api-gateway
+    component: backend
+  annotations:
+    iam.gke.io/gcp-service-account: api-gateway@userwhisperer-prod.iam.gserviceaccount.com
+
+---
+# Database Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: postgres-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: postgres
+    component: database
+
+---
+# Redis Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: redis-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: redis
+    component: cache
+
+---
+# Monitoring Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: monitoring-sa
+  namespace: userwhisperer-monitoring
+  labels:
+    app: monitoring
+    component: observability
+
+---
+# ==========================================
+# ROLES
+# ==========================================
+
+# Event Ingestion Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: event-ingestion-role
+  namespace: userwhisperer-prod
+  labels:
+    app: event-ingestion
+rules:
+# ConfigMaps access
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["event-ingestion-config", "app-config", "feature-flags"]
+  verbs: ["get", "watch"]
+
+# Secrets access (specific secrets only)
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["postgres-secret", "redis-secret", "pubsub-secret", "api-keys"]
+  verbs: ["get"]
+
+# Events creation for logging
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+# Pods read-only for health checks
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list"]
+  resourceNames: ["event-ingestion-*"]
+
+# Services discovery
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+
+---
+# Behavioral Analysis Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: behavioral-analysis-role
+  namespace: userwhisperer-prod
+  labels:
+    app: behavioral-analysis
+rules:
+# ConfigMaps access
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["behavioral-analysis-config", "ml-config", "feature-flags"]
+  verbs: ["get", "watch"]
+
+# Secrets access
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["postgres-secret", "redis-secret", "ml-models-secret", "api-keys"]
+  verbs: ["get"]
+
+# Events creation
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+# ML model access (custom resources)
+- apiGroups: ["machinelearning.userwhisperer.ai"]
+  resources: ["models", "experiments"]
+  verbs: ["get", "list", "watch", "create", "update"]
+
+---
+# Decision Engine Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: decision-engine-role
+  namespace: userwhisperer-prod
+  labels:
+    app: decision-engine
+rules:
+# ConfigMaps access
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["decision-engine-config", "ml-config", "business-rules", "feature-flags"]
+  verbs: ["get", "watch"]
+
+# Secrets access
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["postgres-secret", "redis-secret", "ml-models-secret", "api-keys"]
+  verbs: ["get"]
+
+# Events creation
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+# Decision tracking (custom resources)
+- apiGroups: ["decisions.userwhisperer.ai"]
+  resources: ["decisions", "interventions"]
+  verbs: ["get", "list", "watch", "create", "update"]
+
+---
+# Content Generation Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: content-generation-role
+  namespace: userwhisperer-prod
+  labels:
+    app: content-generation
+rules:
+# ConfigMaps access
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["content-generation-config", "templates-config", "feature-flags"]
+  verbs: ["get", "watch"]
+
+# Secrets access
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["postgres-secret", "redis-secret", "openai-secret", "anthropic-secret", "api-keys"]
+  verbs: ["get"]
+
+# Events creation
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+# Content templates (custom resources)
+- apiGroups: ["content.userwhisperer.ai"]
+  resources: ["templates", "campaigns"]
+  verbs: ["get", "list", "watch", "create", "update"]
+
+---
+# Channel Orchestration Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: channel-orchestration-role
+  namespace: userwhisperer-prod
+  labels:
+    app: channel-orchestration
+rules:
+# ConfigMaps access
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["channel-orchestration-config", "messaging-config", "feature-flags"]
+  verbs: ["get", "watch"]
+
+# Secrets access
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["postgres-secret", "redis-secret", "sendgrid-secret", "twilio-secret", "firebase-secret", "api-keys"]
+  verbs: ["get"]
+
+# Events creation
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+# Message tracking (custom resources)
+- apiGroups: ["messaging.userwhisperer.ai"]
+  resources: ["messages", "deliveries"]
+  verbs: ["get", "list", "watch", "create", "update"]
+
+---
+# API Gateway Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: api-gateway-role
+  namespace: userwhisperer-prod
+  labels:
+    app: api-gateway
+rules:
+# ConfigMaps access
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["api-gateway-config", "rate-limiting-config", "feature-flags"]
+  verbs: ["get", "watch"]
+
+# Secrets access
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["postgres-secret", "redis-secret", "jwt-secret", "api-keys"]
+  verbs: ["get"]
+
+# Events creation
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+# Service discovery for routing
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+
+# API management (custom resources)
+- apiGroups: ["gateway.userwhisperer.ai"]
+  resources: ["routes", "middlewares", "ratelimits"]
+  verbs: ["get", "list", "watch"]
+
+---
+# Database Admin Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: postgres-admin-role
+  namespace: userwhisperer-prod
+  labels:
+    app: postgres
+rules:
+# ConfigMaps for database configuration
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+- apiGroups: [""]
+  resources: ["configmaps"]
+  resourceNames: ["postgres-config", "postgres-init-scripts", "postgres-backup-config"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+# Secrets for credentials
+- apiGroups: [""]
+  resources: ["secrets"]
+  resourceNames: ["postgres-secret", "postgres-backup-secret"]
+  verbs: ["get", "create", "update"]
+
+# Events for database operations
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+# Pod management for maintenance
+- apiGroups: [""]
+  resources: ["pods"]
+  verbs: ["get", "list", "watch"]
+
+# PVC management for storage
+- apiGroups: [""]
+  resources: ["persistentvolumeclaims"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+---
+# Monitoring Role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: monitoring-role
+  namespace: userwhisperer-monitoring
+  labels:
+    app: monitoring
+rules:
+# ConfigMaps for monitoring configuration
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch", "create", "update", "patch"]
+
+# Secrets for monitoring credentials
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+
+# Events creation
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["create"]
+
+# Services and endpoints discovery
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+
+# ==========================================
+# CLUSTER ROLES
+# ==========================================
+
+# Cluster-wide monitoring role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: userwhisperer-monitoring-cluster-role
+  labels:
+    app: monitoring
+rules:
+# Node metrics access
+- apiGroups: [""]
+  resources: ["nodes", "nodes/proxy", "nodes/metrics"]
+  verbs: ["get", "list", "watch"]
+
+# Pod metrics access across namespaces
+- apiGroups: [""]
+  resources: ["pods", "pods/proxy", "pods/log"]
+  verbs: ["get", "list", "watch"]
+
+# Service discovery across namespaces
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+
+# Namespace access
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+
+# Deployment and ReplicaSet metrics
+- apiGroups: ["apps"]
+  resources: ["deployments", "replicasets", "statefulsets", "daemonsets"]
+  verbs: ["get", "list", "watch"]
+
+# Ingress metrics
+- apiGroups: ["networking.k8s.io"]
+  resources: ["ingresses"]
+  verbs: ["get", "list", "watch"]
+
+# Custom metrics
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["nodes", "pods"]
+  verbs: ["get", "list"]
+
+# Kubernetes API metrics
+- nonResourceURLs: ["/metrics", "/metrics/cadvisor"]
+  verbs: ["get"]
+
+---
+# Platform operator cluster role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: userwhisperer-platform-operator
+  labels:
+    app: userwhisperer
+rules:
+# Node information for scheduling
+- apiGroups: [""]
+  resources: ["nodes"]
+  verbs: ["get", "list", "watch"]
+
+# Namespace management
+- apiGroups: [""]
+  resources: ["namespaces"]
+  verbs: ["get", "list", "watch"]
+
+# Service discovery
+- apiGroups: [""]
+  resources: ["services"]
+  verbs: ["get", "list", "watch"]
+
+# Custom Resource Definitions
+- apiGroups: ["apiextensions.k8s.io"]
+  resources: ["customresourcedefinitions"]
+  verbs: ["get", "list", "watch"]
+
+# User Whisperer custom resources
+- apiGroups: ["userwhisperer.ai"]
+  resources: ["*"]
+  verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+
+---
+# ==========================================
+# ROLE BINDINGS
+# ==========================================
+
+# Event Ingestion Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: event-ingestion-binding
+  namespace: userwhisperer-prod
+  labels:
+    app: event-ingestion
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: event-ingestion-role
+subjects:
+- kind: ServiceAccount
+  name: event-ingestion-sa
+  namespace: userwhisperer-prod
+
+---
+# Behavioral Analysis Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: behavioral-analysis-binding
+  namespace: userwhisperer-prod
+  labels:
+    app: behavioral-analysis
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: behavioral-analysis-role
+subjects:
+- kind: ServiceAccount
+  name: behavioral-analysis-sa
+  namespace: userwhisperer-prod
+
+---
+# Decision Engine Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: decision-engine-binding
+  namespace: userwhisperer-prod
+  labels:
+    app: decision-engine
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: decision-engine-role
+subjects:
+- kind: ServiceAccount
+  name: decision-engine-sa
+  namespace: userwhisperer-prod
+
+---
+# Content Generation Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: content-generation-binding
+  namespace: userwhisperer-prod
+  labels:
+    app: content-generation
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: content-generation-role
+subjects:
+- kind: ServiceAccount
+  name: content-generation-sa
+  namespace: userwhisperer-prod
+
+---
+# Channel Orchestration Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: channel-orchestration-binding
+  namespace: userwhisperer-prod
+  labels:
+    app: channel-orchestration
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: channel-orchestration-role
+subjects:
+- kind: ServiceAccount
+  name: channel-orchestration-sa
+  namespace: userwhisperer-prod
+
+---
+# API Gateway Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: api-gateway-binding
+  namespace: userwhisperer-prod
+  labels:
+    app: api-gateway
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: api-gateway-role
+subjects:
+- kind: ServiceAccount
+  name: api-gateway-sa
+  namespace: userwhisperer-prod
+
+---
+# Database Admin Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: postgres-admin-binding
+  namespace: userwhisperer-prod
+  labels:
+    app: postgres
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: postgres-admin-role
+subjects:
+- kind: ServiceAccount
+  name: postgres-sa
+  namespace: userwhisperer-prod
+
+---
+# Monitoring Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: monitoring-binding
+  namespace: userwhisperer-monitoring
+  labels:
+    app: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: monitoring-role
+subjects:
+- kind: ServiceAccount
+  name: monitoring-sa
+  namespace: userwhisperer-monitoring
+
+---
+# ==========================================
+# CLUSTER ROLE BINDINGS
+# ==========================================
+
+# Monitoring Cluster Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: userwhisperer-monitoring-cluster-binding
+  labels:
+    app: monitoring
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: userwhisperer-monitoring-cluster-role
+subjects:
+- kind: ServiceAccount
+  name: monitoring-sa
+  namespace: userwhisperer-monitoring
+- kind: ServiceAccount
+  name: prometheus
+  namespace: userwhisperer-monitoring
+
+---
+# Platform Operator Cluster Role Binding
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: userwhisperer-platform-operator-binding
+  labels:
+    app: userwhisperer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: userwhisperer-platform-operator
+subjects:
+- kind: ServiceAccount
+  name: userwhisperer-sa
+  namespace: userwhisperer-prod
+
+---
+# ==========================================
+# SECURITY POLICIES
+# ==========================================
+
+# Pod Security Policy
+apiVersion: policy/v1beta1
+kind: PodSecurityPolicy
+metadata:
+  name: userwhisperer-restricted
+  labels:
+    app: userwhisperer
+spec:
+  privileged: false
+  allowPrivilegeEscalation: false
+  requiredDropCapabilities:
+    - ALL
+  volumes:
+    - 'configMap'
+    - 'emptyDir'
+    - 'projected'
+    - 'secret'
+    - 'downwardAPI'
+    - 'persistentVolumeClaim'
+  hostNetwork: false
+  hostIPC: false
+  hostPID: false
+  runAsUser:
+    rule: 'MustRunAsNonRoot'
+  supplementalGroups:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  fsGroup:
+    rule: 'MustRunAs'
+    ranges:
+      - min: 1000
+        max: 65535
+  seLinux:
+    rule: 'RunAsAny'
+  readOnlyRootFilesystem: true
+
+---
+# ClusterRole for Pod Security Policy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: userwhisperer-psp-restricted
+  labels:
+    app: userwhisperer
+rules:
+- apiGroups: ['policy']
+  resources: ['podsecuritypolicies']
+  verbs: ['use']
+  resourceNames:
+  - userwhisperer-restricted
+
+---
+# ClusterRoleBinding for Pod Security Policy
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: userwhisperer-psp-restricted-binding
+  labels:
+    app: userwhisperer
+roleRef:
+  kind: ClusterRole
+  name: userwhisperer-psp-restricted
+  apiGroup: rbac.authorization.k8s.io
+subjects:
+- kind: Group
+  name: system:serviceaccounts:userwhisperer-prod
+  apiGroup: rbac.authorization.k8s.io
+- kind: Group
+  name: system:serviceaccounts:userwhisperer-staging
+  apiGroup: rbac.authorization.k8s.io
+- kind: Group
+  name: system:serviceaccounts:userwhisperer-monitoring
+  apiGroup: rbac.authorization.k8s.io

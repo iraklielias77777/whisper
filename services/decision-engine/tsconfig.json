@@ -1,0 +1,23 @@
+{
+  "extends": "../../shared/tsconfig.json",
+  "compilerOptions": {
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "baseUrl": "./src",
+    "paths": {
+      "@/*": ["*"],
+      "@shared/*": ["../../shared/*"]
+    },
+    "types": ["node", "jest"],
+    "lib": ["es2022", "dom"]
+  },
+  "include": [
+    "src/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts"
+  ]
+} 

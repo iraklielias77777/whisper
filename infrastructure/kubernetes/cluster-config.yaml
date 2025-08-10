@@ -1,0 +1,465 @@
+# User Whisperer Platform - Kubernetes Cluster Configuration
+# Production-ready cluster setup with namespaces, quotas, and security policies
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: userwhisperer-prod
+  labels:
+    name: userwhisperer-prod
+    environment: production
+    project: userwhisperer
+    tier: production
+  annotations:
+    kubernetes.io/managed-by: "userwhisperer-platform"
+    description: "Production namespace for User Whisperer Platform"
+    
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: userwhisperer-staging
+  labels:
+    name: userwhisperer-staging
+    environment: staging
+    project: userwhisperer
+    tier: staging
+  annotations:
+    kubernetes.io/managed-by: "userwhisperer-platform"
+    description: "Staging namespace for User Whisperer Platform"
+
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: userwhisperer-monitoring
+  labels:
+    name: userwhisperer-monitoring
+    environment: production
+    project: userwhisperer
+    tier: monitoring
+  annotations:
+    kubernetes.io/managed-by: "userwhisperer-platform"
+    description: "Monitoring stack for User Whisperer Platform"
+
+---
+# Production Resource Quotas
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-quota-prod
+  namespace: userwhisperer-prod
+spec:
+  hard:
+    # CPU and Memory limits
+    requests.cpu: "100"
+    requests.memory: 200Gi
+    limits.cpu: "200"
+    limits.memory: 400Gi
+    
+    # Storage limits
+    persistentvolumeclaims: "50"
+    requests.storage: "2Ti"
+    
+    # Network limits
+    services.nodeports: "10"
+    services.loadbalancers: "10"
+    
+    # Object limits
+    pods: "200"
+    replicationcontrollers: "50"
+    secrets: "100"
+    configmaps: "100"
+    
+    # Custom resources
+    count/horizontalpodautoscalers.autoscaling: "50"
+    count/networkpolicies.networking.k8s.io: "20"
+
+---
+# Staging Resource Quotas (smaller limits)
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-quota-staging
+  namespace: userwhisperer-staging
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    persistentvolumeclaims: "20"
+    requests.storage: "500Gi"
+    services.nodeports: "5"
+    services.loadbalancers: "5"
+    pods: "50"
+    secrets: "50"
+    configmaps: "50"
+
+---
+# Monitoring Resource Quotas
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: compute-quota-monitoring
+  namespace: userwhisperer-monitoring
+spec:
+  hard:
+    requests.cpu: "10"
+    requests.memory: 20Gi
+    limits.cpu: "20"
+    limits.memory: 40Gi
+    persistentvolumeclaims: "10"
+    requests.storage: "1Ti"
+
+---
+# Default Network Policy - Deny all ingress by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-ingress
+  namespace: userwhisperer-prod
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+
+---
+# Default Network Policy - Deny all egress by default
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-egress
+  namespace: userwhisperer-prod
+spec:
+  podSelector: {}
+  policyTypes:
+  - Egress
+
+---
+# Allow internal namespace communication
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-internal-namespace
+  namespace: userwhisperer-prod
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: userwhisperer-prod
+  egress:
+  - to:
+    - namespaceSelector:
+        matchLabels:
+          name: userwhisperer-prod
+  # Allow DNS resolution
+  - to:
+    - namespaceSelector: {}
+    ports:
+    - protocol: TCP
+      port: 53
+    - protocol: UDP
+      port: 53
+  # Block metadata service access
+  - to:
+    - ipBlock:
+        cidr: 0.0.0.0/0
+        except:
+        - 169.254.169.254/32
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+
+---
+# Priority Classes for workload prioritization
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: userwhisperer-critical
+value: 1000
+globalDefault: false
+description: "Critical User Whisperer services that must be scheduled first"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: userwhisperer-high
+value: 750
+globalDefault: false
+description: "High priority User Whisperer services"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: userwhisperer-standard
+value: 500
+globalDefault: false
+description: "Standard priority User Whisperer services"
+
+---
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: userwhisperer-low
+value: 250
+globalDefault: false
+description: "Low priority User Whisperer services (batch jobs, etc.)"
+
+---
+# Limit Ranges for resource constraints
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: userwhisperer-limits
+  namespace: userwhisperer-prod
+spec:
+  limits:
+  # Container limits
+  - type: Container
+    default:
+      cpu: "500m"
+      memory: "512Mi"
+      ephemeral-storage: "1Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "128Mi"
+      ephemeral-storage: "100Mi"
+    max:
+      cpu: "8"
+      memory: "16Gi"
+      ephemeral-storage: "10Gi"
+    min:
+      cpu: "50m"
+      memory: "64Mi"
+      ephemeral-storage: "50Mi"
+  
+  # Pod limits
+  - type: Pod
+    max:
+      cpu: "16"
+      memory: "32Gi"
+  
+  # PVC limits
+  - type: PersistentVolumeClaim
+    max:
+      storage: "1Ti"
+    min:
+      storage: "1Gi"
+
+---
+# Storage Classes for different performance tiers
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: userwhisperer-fast-ssd
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "false"
+provisioner: kubernetes.io/gce-pd
+parameters:
+  type: pd-ssd
+  replication-type: regional-pd
+  zones: us-central1-a,us-central1-b,us-central1-c
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+
+---
+apiVersion: storage.k8s.io/v1
+kind: StorageClass
+metadata:
+  name: userwhisperer-standard-ssd
+  annotations:
+    storageclass.kubernetes.io/is-default-class: "true"
+provisioner: kubernetes.io/gce-pd
+parameters:
+  type: pd-standard
+  replication-type: regional-pd
+  zones: us-central1-a,us-central1-b,us-central1-c
+reclaimPolicy: Retain
+allowVolumeExpansion: true
+volumeBindingMode: WaitForFirstConsumer
+
+---
+# RBAC - Cluster roles for User Whisperer services
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: userwhisperer-operator
+rules:
+# Pod management
+- apiGroups: [""]
+  resources: ["pods", "pods/log", "pods/status"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["events"]
+  verbs: ["get", "list", "watch", "create"]
+# Service discovery
+- apiGroups: [""]
+  resources: ["services", "endpoints"]
+  verbs: ["get", "list", "watch"]
+# ConfigMap and Secret access
+- apiGroups: [""]
+  resources: ["configmaps"]
+  verbs: ["get", "list", "watch"]
+- apiGroups: [""]
+  resources: ["secrets"]
+  verbs: ["get", "list", "watch"]
+# Metrics access
+- apiGroups: ["metrics.k8s.io"]
+  resources: ["pods", "nodes"]
+  verbs: ["get", "list"]
+
+---
+# Service Account for User Whisperer services
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: userwhisperer-sa
+  namespace: userwhisperer-prod
+  labels:
+    app: userwhisperer
+    component: serviceaccount
+automountServiceAccountToken: true
+
+---
+# Bind service account to cluster role
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: userwhisperer-operator-binding
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: userwhisperer-operator
+subjects:
+- kind: ServiceAccount
+  name: userwhisperer-sa
+  namespace: userwhisperer-prod
+
+---
+# Pod Security Standards - Restricted policy
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: userwhisperer-pod-security-policy
+  namespace: userwhisperer-prod
+data:
+  policy: |
+    apiVersion: v1
+    kind: Pod
+    metadata:
+      annotations:
+        # Enforce restricted security context
+        seccomp.security.alpha.kubernetes.io/pod: runtime/default
+    spec:
+      # Security context requirements
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1000
+        runAsGroup: 1000
+        fsGroup: 1000
+        seccompProfile:
+          type: RuntimeDefault
+        supplementalGroups: [1000]
+      
+      # Container security requirements
+      containers:
+      - name: example
+        securityContext:
+          allowPrivilegeEscalation: false
+          readOnlyRootFilesystem: true
+          runAsNonRoot: true
+          runAsUser: 1000
+          runAsGroup: 1000
+          capabilities:
+            drop:
+            - ALL
+          seccompProfile:
+            type: RuntimeDefault
+        
+        # Resource limits required
+        resources:
+          limits:
+            memory: "512Mi"
+            cpu: "500m"
+          requests:
+            memory: "128Mi"
+            cpu: "100m"
+
+---
+# Admission Controller Configuration
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: userwhisperer-admission-config
+  namespace: userwhisperer-prod
+data:
+  admission-control.yaml: |
+    # Enforce pod security standards
+    apiVersion: apiserver.config.k8s.io/v1
+    kind: AdmissionConfiguration
+    plugins:
+    - name: PodSecurity
+      configuration:
+        apiVersion: pod-security.admission.config.k8s.io/v1beta1
+        kind: PodSecurityConfiguration
+        defaults:
+          enforce: "restricted"
+          enforce-version: "latest"
+          audit: "restricted"
+          audit-version: "latest"
+          warn: "restricted"
+          warn-version: "latest"
+        exemptions:
+          usernames: []
+          runtimeClasses: []
+          namespaces: [kube-system, kube-public, userwhisperer-monitoring]
+
+---
+# Resource Monitoring with custom metrics
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: userwhisperer-metrics-config
+  namespace: userwhisperer-prod
+data:
+  custom-metrics.yaml: |
+    # Custom metrics for horizontal pod autoscaling
+    rules:
+    - seriesQuery: 'http_requests_per_second{namespace="userwhisperer-prod"}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)"
+        as: "http_requests_per_second"
+      metricsQuery: 'avg(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+    
+    - seriesQuery: 'event_processing_lag_seconds{namespace="userwhisperer-prod"}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)"
+        as: "event_processing_lag"
+      metricsQuery: 'max(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'
+    
+    - seriesQuery: 'queue_depth{namespace="userwhisperer-prod"}'
+      resources:
+        overrides:
+          namespace: {resource: "namespace"}
+          pod: {resource: "pod"}
+      name:
+        matches: "^(.*)"
+        as: "queue_depth"
+      metricsQuery: 'sum(<<.Series>>{<<.LabelMatchers>>}) by (<<.GroupBy>>)'

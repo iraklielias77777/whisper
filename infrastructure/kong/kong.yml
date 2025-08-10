@@ -1,0 +1,471 @@
+# Kong API Gateway Configuration for User Whisperer Platform
+_format_version: "3.0"
+
+# Services Configuration
+services:
+  - name: event-ingestion
+    url: http://event-ingestion:3001
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+    tags:
+      - userwhisperer
+      - event-ingestion
+
+  - name: behavioral-analysis
+    url: http://behavioral-analysis:3002
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+    tags:
+      - userwhisperer
+      - behavioral-analysis
+
+  - name: decision-engine
+    url: http://decision-engine:3003
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+    tags:
+      - userwhisperer
+      - decision-engine
+
+  - name: content-generation
+    url: http://content-generation:3004
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+    tags:
+      - userwhisperer
+      - content-generation
+
+  - name: channel-orchestrator
+    url: http://channel-orchestrator:3005
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+    tags:
+      - userwhisperer
+      - channel-orchestrator
+
+  - name: ai-orchestration
+    url: http://ai-orchestration:3006
+    connect_timeout: 60000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 3
+    tags:
+      - userwhisperer
+      - ai-orchestration
+
+# Routes Configuration
+routes:
+  # Event Ingestion Routes
+  - name: event-ingestion-track
+    service: event-ingestion
+    paths:
+      - /v1/events/track
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - event-ingestion
+      - public-api
+
+  - name: event-ingestion-batch
+    service: event-ingestion
+    paths:
+      - /v1/events/batch
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - event-ingestion
+      - public-api
+
+  - name: event-ingestion-health
+    service: event-ingestion
+    paths:
+      - /health/event-ingestion
+    methods:
+      - GET
+    strip_path: true
+    tags:
+      - event-ingestion
+      - health
+
+  # Behavioral Analysis Routes (Internal)
+  - name: behavioral-analysis-analyze
+    service: behavioral-analysis
+    paths:
+      - /v1/behavioral/analyze
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - behavioral-analysis
+      - internal-api
+
+  - name: behavioral-analysis-score
+    service: behavioral-analysis
+    paths:
+      - /v1/behavioral/score
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - behavioral-analysis
+      - internal-api
+
+  - name: behavioral-analysis-health
+    service: behavioral-analysis
+    paths:
+      - /health/behavioral-analysis
+    methods:
+      - GET
+    strip_path: true
+    tags:
+      - behavioral-analysis
+      - health
+
+  # Decision Engine Routes (Internal)
+  - name: decision-engine-decide
+    service: decision-engine
+    paths:
+      - /v1/decisions/make
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - decision-engine
+      - internal-api
+
+  - name: decision-engine-health
+    service: decision-engine
+    paths:
+      - /health/decision-engine
+    methods:
+      - GET
+    strip_path: true
+    tags:
+      - decision-engine
+      - health
+
+  # Content Generation Routes (Internal)
+  - name: content-generation-generate
+    service: content-generation
+    paths:
+      - /v1/content/generate
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - content-generation
+      - internal-api
+
+  - name: content-generation-health
+    service: content-generation
+    paths:
+      - /health/content-generation
+    methods:
+      - GET
+    strip_path: true
+    tags:
+      - content-generation
+      - health
+
+  # Channel Orchestrator Routes (Internal)
+  - name: channel-orchestrator-deliver
+    service: channel-orchestrator
+    paths:
+      - /v1/channels/deliver
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - channel-orchestrator
+      - internal-api
+
+  - name: channel-orchestrator-health
+    service: channel-orchestrator
+    paths:
+      - /health/channel-orchestrator
+    methods:
+      - GET
+    strip_path: true
+    tags:
+      - channel-orchestrator
+      - health
+
+  # AI Orchestration Routes (Internal)
+  - name: ai-orchestration-orchestrate
+    service: ai-orchestration
+    paths:
+      - /v1/ai/orchestrate
+    methods:
+      - POST
+    strip_path: false
+    tags:
+      - ai-orchestration
+      - internal-api
+
+  - name: ai-orchestration-health
+    service: ai-orchestration
+    paths:
+      - /health/ai-orchestration
+    methods:
+      - GET
+    strip_path: true
+    tags:
+      - ai-orchestration
+      - health
+
+# Plugins Configuration
+plugins:
+  # Global Rate Limiting
+  - name: rate-limiting
+    config:
+      minute: 1000
+      hour: 10000
+      day: 100000
+      policy: redis
+      redis_host: redis
+      redis_port: 6379
+      redis_database: 1
+      hide_client_headers: false
+    tags:
+      - global
+      - rate-limiting
+
+  # Global CORS
+  - name: cors
+    config:
+      origins:
+        - "*"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - DELETE
+        - PATCH
+        - OPTIONS
+      headers:
+        - Accept
+        - Accept-Version
+        - Content-Length
+        - Content-MD5
+        - Content-Type
+        - Date
+        - X-Auth-Token
+        - X-API-Key
+        - Authorization
+      exposed_headers:
+        - X-Auth-Token
+        - X-RateLimit-Limit
+        - X-RateLimit-Remaining
+        - X-RateLimit-Reset
+      credentials: true
+      max_age: 3600
+    tags:
+      - global
+      - cors
+
+  # Request/Response Logging
+  - name: http-log
+    config:
+      http_endpoint: http://logs-collector:8080/kong-logs
+      method: POST
+      timeout: 10000
+      keepalive: 60000
+      retry_count: 3
+    tags:
+      - global
+      - logging
+
+  # Prometheus Metrics
+  - name: prometheus
+    config:
+      per_consumer: true
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+    tags:
+      - global
+      - monitoring
+
+  # API Key Authentication for Public APIs
+  - name: key-auth
+    route: event-ingestion-track
+    config:
+      key_names:
+        - X-API-Key
+        - apikey
+      key_in_body: false
+      key_in_header: true
+      key_in_query: true
+      hide_credentials: true
+    tags:
+      - event-ingestion
+      - authentication
+
+  - name: key-auth
+    route: event-ingestion-batch
+    config:
+      key_names:
+        - X-API-Key
+        - apikey
+      key_in_body: false
+      key_in_header: true
+      key_in_query: true
+      hide_credentials: true
+    tags:
+      - event-ingestion
+      - authentication
+
+  # Enhanced Rate Limiting for Event Ingestion
+  - name: rate-limiting
+    route: event-ingestion-track
+    config:
+      minute: 100
+      hour: 1000
+      day: 10000
+      policy: redis
+      redis_host: redis
+      redis_port: 6379
+      redis_database: 1
+      hide_client_headers: false
+    tags:
+      - event-ingestion
+      - rate-limiting
+
+  - name: rate-limiting
+    route: event-ingestion-batch
+    config:
+      minute: 10
+      hour: 100
+      day: 1000
+      policy: redis
+      redis_host: redis
+      redis_port: 6379
+      redis_database: 1
+      hide_client_headers: false
+    tags:
+      - event-ingestion
+      - rate-limiting
+
+  # IP Restriction for Internal APIs
+  - name: ip-restriction
+    route: behavioral-analysis-analyze
+    config:
+      allow:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 127.0.0.1
+    tags:
+      - behavioral-analysis
+      - security
+
+  - name: ip-restriction
+    route: behavioral-analysis-score
+    config:
+      allow:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 127.0.0.1
+    tags:
+      - behavioral-analysis
+      - security
+
+  - name: ip-restriction
+    route: decision-engine-decide
+    config:
+      allow:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 127.0.0.1
+    tags:
+      - decision-engine
+      - security
+
+  - name: ip-restriction
+    route: content-generation-generate
+    config:
+      allow:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 127.0.0.1
+    tags:
+      - content-generation
+      - security
+
+  - name: ip-restriction
+    route: channel-orchestrator-deliver
+    config:
+      allow:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 127.0.0.1
+    tags:
+      - channel-orchestrator
+      - security
+
+  - name: ip-restriction
+    route: ai-orchestration-orchestrate
+    config:
+      allow:
+        - 10.0.0.0/8
+        - 172.16.0.0/12
+        - 192.168.0.0/16
+        - 127.0.0.1
+    tags:
+      - ai-orchestration
+      - security
+
+# Consumers (API Keys)
+consumers:
+  - username: demo-app
+    custom_id: demo-app-001
+    tags:
+      - demo
+      - development
+
+  - username: production-app
+    custom_id: prod-app-001
+    tags:
+      - production
+
+  - username: test-suite
+    custom_id: test-suite-001
+    tags:
+      - testing
+      - automation
+
+# Consumer API Keys
+keyauth_credentials:
+  - consumer: demo-app
+    key: demo_1234567890abcdef
+    tags:
+      - demo
+      - development
+
+  - consumer: production-app
+    key: prod_fedcba0987654321
+    tags:
+      - production
+
+  - consumer: test-suite
+    key: test_abcdef1234567890
+    tags:
+      - testing
+      - automation

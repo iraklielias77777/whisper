@@ -1,0 +1,762 @@
+# Comprehensive Prometheus Configuration for User Whisperer Platform
+# Production-ready monitoring with service discovery, alerting, and federation
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-config
+  namespace: userwhisperer-monitoring
+  labels:
+    app: prometheus
+    component: monitoring
+data:
+  prometheus.yml: |
+    global:
+      scrape_interval: 15s
+      scrape_timeout: 10s
+      evaluation_interval: 15s
+      external_labels:
+        cluster: 'userwhisperer-prod'
+        environment: 'production'
+        region: 'us-central1'
+    
+    # Alertmanager configuration
+    alerting:
+      alertmanagers:
+      - static_configs:
+        - targets:
+          - alertmanager.userwhisperer-monitoring.svc.cluster.local:9093
+        timeout: 10s
+        api_version: v2
+    
+    # Rule files for alerts and recording rules
+    rule_files:
+      - '/etc/prometheus/rules/alerts/*.yml'
+      - '/etc/prometheus/rules/recording/*.yml'
+    
+    # Scrape configurations
+    scrape_configs:
+      # ==========================================
+      # KUBERNETES INFRASTRUCTURE
+      # ==========================================
+      
+      # Kubernetes API server
+      - job_name: 'kubernetes-apiservers'
+        kubernetes_sd_configs:
+        - role: endpoints
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_namespace, __meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+          action: keep
+          regex: default;kubernetes;https
+        metric_relabel_configs:
+        - source_labels: [__name__]
+          regex: 'apiserver_request_duration_seconds_bucket|apiserver_request_total|apiserver_current_inflight_requests'
+          action: keep
+      
+      # Kubelet metrics
+      - job_name: 'kubernetes-nodes'
+        kubernetes_sd_configs:
+        - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - target_label: __address__
+          replacement: kubernetes.default.svc:443
+        - source_labels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          target_label: __metrics_path__
+          replacement: /api/v1/nodes/${1}/proxy/metrics
+      
+      # Kubelet cAdvisor metrics
+      - job_name: 'kubernetes-cadvisor'
+        kubernetes_sd_configs:
+        - role: node
+        scheme: https
+        tls_config:
+          ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+          insecure_skip_verify: true
+        bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+        relabel_configs:
+        - action: labelmap
+          regex: __meta_kubernetes_node_label_(.+)
+        - target_label: __address__
+          replacement: kubernetes.default.svc:443
+        - source_labels: [__meta_kubernetes_node_name]
+          regex: (.+)
+          target_label: __metrics_path__
+          replacement: /api/v1/nodes/${1}/proxy/metrics/cadvisor
+        metric_relabel_configs:
+        # Drop container metrics for system containers
+        - source_labels: [container]
+          regex: 'POD|k8s_POD_.*'
+          action: drop
+        # Keep only userwhisperer namespace containers
+        - source_labels: [namespace]
+          regex: 'userwhisperer.*'
+          action: keep
+      
+      # ==========================================
+      # APPLICATION SERVICES
+      # ==========================================
+      
+      # Pods with prometheus.io/scrape annotation
+      - job_name: 'kubernetes-pods'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+            - userwhisperer-prod
+            - userwhisperer-staging
+            - userwhisperer-monitoring
+        relabel_configs:
+        # Only scrape pods with annotation
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        
+        # Use custom metrics path if specified
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        
+        # Use custom port if specified
+        - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+          action: replace
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+          target_label: __address__
+        
+        # Use custom scheme if specified
+        - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scheme]
+          action: replace
+          target_label: __scheme__
+          regex: (https?)
+        
+        # Add pod metadata as labels
+        - action: labelmap
+          regex: __meta_kubernetes_pod_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          action: replace
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_pod_name]
+          action: replace
+          target_label: kubernetes_pod_name
+        - source_labels: [__meta_kubernetes_pod_container_name]
+          action: replace
+          target_label: kubernetes_container_name
+      
+      # Service endpoints
+      - job_name: 'kubernetes-service-endpoints'
+        kubernetes_sd_configs:
+        - role: endpoints
+          namespaces:
+            names:
+            - userwhisperer-prod
+            - userwhisperer-staging
+            - userwhisperer-monitoring
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+          action: keep
+          regex: true
+        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scheme]
+          action: replace
+          target_label: __scheme__
+          regex: (https?)
+        - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+          action: replace
+          target_label: __metrics_path__
+          regex: (.+)
+        - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+          action: replace
+          target_label: __address__
+          regex: ([^:]+)(?::\d+)?;(\d+)
+          replacement: $1:$2
+        - action: labelmap
+          regex: __meta_kubernetes_service_label_(.+)
+        - source_labels: [__meta_kubernetes_namespace]
+          target_label: kubernetes_namespace
+        - source_labels: [__meta_kubernetes_service_name]
+          target_label: kubernetes_service_name
+      
+      # ==========================================
+      # USER WHISPERER SERVICES
+      # ==========================================
+      
+      # Event Ingestion Service
+      - job_name: 'event-ingestion'
+        static_configs:
+        - targets: 
+          - 'event-ingestion-service.userwhisperer-prod.svc.cluster.local:9090'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        scrape_timeout: 5s
+        params:
+          format: ['prometheus']
+      
+      # Behavioral Analysis Service
+      - job_name: 'behavioral-analysis'
+        static_configs:
+        - targets: 
+          - 'behavioral-analysis-service.userwhisperer-prod.svc.cluster.local:9090'
+        metrics_path: '/metrics'
+        scrape_interval: 15s
+        scrape_timeout: 10s
+      
+      # Decision Engine Service
+      - job_name: 'decision-engine'
+        static_configs:
+        - targets: 
+          - 'decision-engine-service.userwhisperer-prod.svc.cluster.local:9090'
+        metrics_path: '/metrics'
+        scrape_interval: 15s
+        scrape_timeout: 10s
+      
+      # Content Generation Service
+      - job_name: 'content-generation'
+        static_configs:
+        - targets: 
+          - 'content-generation-service.userwhisperer-prod.svc.cluster.local:9090'
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+        scrape_timeout: 15s
+      
+      # Channel Orchestration Service
+      - job_name: 'channel-orchestration'
+        static_configs:
+        - targets: 
+          - 'channel-orchestration-service.userwhisperer-prod.svc.cluster.local:9090'
+        metrics_path: '/metrics'
+        scrape_interval: 15s
+        scrape_timeout: 10s
+      
+      # API Gateway
+      - job_name: 'api-gateway'
+        static_configs:
+        - targets: 
+          - 'api-gateway-service.userwhisperer-prod.svc.cluster.local:9090'
+        metrics_path: '/metrics'
+        scrape_interval: 10s
+        scrape_timeout: 5s
+      
+      # ==========================================
+      # INFRASTRUCTURE SERVICES
+      # ==========================================
+      
+      # PostgreSQL Exporter
+      - job_name: 'postgres'
+        static_configs:
+        - targets: 
+          - 'postgres-primary.userwhisperer-prod.svc.cluster.local:9187'
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+        scrape_timeout: 10s
+        relabel_configs:
+        - source_labels: [__address__]
+          target_label: instance
+          regex: '([^:]+)(:[0-9]+)?'
+          replacement: '${1}'
+      
+      # Redis Exporter
+      - job_name: 'redis'
+        static_configs:
+        - targets: 
+          - 'redis-exporter.userwhisperer-prod.svc.cluster.local:9121'
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+        scrape_timeout: 10s
+      
+      # Node Exporter
+      - job_name: 'node-exporter'
+        kubernetes_sd_configs:
+        - role: node
+        relabel_configs:
+        - source_labels: [__address__]
+          regex: '(.*):10250'
+          target_label: __address__
+          replacement: '${1}:9100'
+        - source_labels: [__meta_kubernetes_node_name]
+          target_label: instance
+        metric_relabel_configs:
+        # Keep only essential node metrics
+        - source_labels: [__name__]
+          regex: 'node_(cpu_seconds_total|memory_MemTotal_bytes|memory_MemAvailable_bytes|filesystem_size_bytes|filesystem_avail_bytes|disk_read_bytes_total|disk_written_bytes_total|network_receive_bytes_total|network_transmit_bytes_total|load1|load5|load15)'
+          action: keep
+      
+      # ==========================================
+      # MONITORING STACK
+      # ==========================================
+      
+      # Prometheus itself
+      - job_name: 'prometheus'
+        static_configs:
+        - targets: 
+          - 'localhost:9090'
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+      
+      # Alertmanager
+      - job_name: 'alertmanager'
+        static_configs:
+        - targets: 
+          - 'alertmanager.userwhisperer-monitoring.svc.cluster.local:9093'
+        metrics_path: '/metrics'
+        scrape_interval: 30s
+      
+      # Grafana
+      - job_name: 'grafana'
+        static_configs:
+        - targets: 
+          - 'grafana.userwhisperer-monitoring.svc.cluster.local:3000'
+        metrics_path: '/metrics'
+        scrape_interval: 60s
+      
+      # Jaeger
+      - job_name: 'jaeger'
+        static_configs:
+        - targets: 
+          - 'jaeger-query.userwhisperer-monitoring.svc.cluster.local:16687'
+        metrics_path: '/metrics'
+        scrape_interval: 60s
+      
+      # ==========================================
+      # EXTERNAL SERVICES
+      # ==========================================
+      
+      # Nginx Ingress Controller
+      - job_name: 'nginx-ingress'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+            - ingress-nginx
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_name]
+          regex: 'nginx-ingress-controller.*'
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          regex: '10254'
+          action: keep
+        - source_labels: [__address__]
+          target_label: __address__
+          regex: '([^:]+):([0-9]+)'
+          replacement: '${1}:10254'
+      
+      # cert-manager
+      - job_name: 'cert-manager'
+        kubernetes_sd_configs:
+        - role: pod
+          namespaces:
+            names:
+            - cert-manager
+        relabel_configs:
+        - source_labels: [__meta_kubernetes_pod_name]
+          regex: 'cert-manager.*'
+          action: keep
+        - source_labels: [__meta_kubernetes_pod_container_port_number]
+          regex: '9402'
+          action: keep
+
+    # Remote write for long-term storage (optional)
+    # remote_write:
+    #   - url: "https://prometheus-prod-us-central1.grafana.net/api/prom/push"
+    #     basic_auth:
+    #       username: "your_username"
+    #       password: "your_password"
+    #     write_relabel_configs:
+    #     - source_labels: [__name__]
+    #       regex: 'userwhisperer_.*|http_requests_.*|ml_model_.*'
+    #       action: keep
+    #     queue_config:
+    #       capacity: 10000
+    #       max_shards: 200
+    #       min_shards: 1
+    #       max_samples_per_send: 1000
+    #       batch_send_deadline: 5s
+    #       min_backoff: 30ms
+    #       max_backoff: 100ms
+
+---
+# Alert Rules ConfigMap
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alert-rules
+  namespace: userwhisperer-monitoring
+  labels:
+    app: prometheus
+    component: alerting
+data:
+  alerts.yml: |
+    groups:
+    # ==========================================
+    # INFRASTRUCTURE ALERTS
+    # ==========================================
+    - name: infrastructure
+      interval: 30s
+      rules:
+      
+      # Service availability
+      - alert: ServiceDown
+        expr: up{job=~"userwhisperer.*|event-ingestion|behavioral-analysis|decision-engine|content-generation|channel-orchestration|api-gateway"} == 0
+        for: 2m
+        labels:
+          severity: critical
+          component: infrastructure
+          team: platform
+        annotations:
+          summary: "Service {{ $labels.job }} is down"
+          description: "{{ $labels.job }} has been down for more than 2 minutes on {{ $labels.instance }}"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/service-down"
+      
+      # High error rate
+      - alert: HighErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (job, service)
+            /
+            sum(rate(http_requests_total[5m])) by (job, service)
+          ) > 0.05
+        for: 5m
+        labels:
+          severity: warning
+          component: application
+          team: platform
+        annotations:
+          summary: "High error rate for {{ $labels.service }}"
+          description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.service }} over the last 5 minutes"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/high-error-rate"
+      
+      # Critical error rate
+      - alert: CriticalErrorRate
+        expr: |
+          (
+            sum(rate(http_requests_total{status=~"5.."}[5m])) by (job, service)
+            /
+            sum(rate(http_requests_total[5m])) by (job, service)
+          ) > 0.20
+        for: 2m
+        labels:
+          severity: critical
+          component: application
+          team: platform
+        annotations:
+          summary: "Critical error rate for {{ $labels.service }}"
+          description: "Error rate is {{ $value | humanizePercentage }} for {{ $labels.service }}"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/critical-error-rate"
+      
+      # High latency
+      - alert: HighLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (job, service, le)
+          ) > 1
+        for: 5m
+        labels:
+          severity: warning
+          component: performance
+          team: platform
+        annotations:
+          summary: "High latency for {{ $labels.service }}"
+          description: "95th percentile latency is {{ $value }}s for {{ $labels.service }}"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/high-latency"
+      
+      # Critical latency
+      - alert: CriticalLatency
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (job, service, le)
+          ) > 5
+        for: 2m
+        labels:
+          severity: critical
+          component: performance
+          team: platform
+        annotations:
+          summary: "Critical latency for {{ $labels.service }}"
+          description: "95th percentile latency is {{ $value }}s for {{ $labels.service }}"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/critical-latency"
+    
+    # ==========================================
+    # RESOURCE ALERTS
+    # ==========================================
+    - name: resources
+      interval: 30s
+      rules:
+      
+      # High CPU usage
+      - alert: HighCPUUsage
+        expr: |
+          (
+            sum(rate(container_cpu_usage_seconds_total{namespace="userwhisperer-prod",container!="POD",container!=""}[5m])) by (pod, container)
+            /
+            sum(container_spec_cpu_quota{namespace="userwhisperer-prod",container!="POD",container!=""}/container_spec_cpu_period{namespace="userwhisperer-prod",container!="POD",container!=""}) by (pod, container)
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: resources
+          team: platform
+        annotations:
+          summary: "High CPU usage for {{ $labels.pod }}/{{ $labels.container }}"
+          description: "CPU usage is {{ $value | humanizePercentage }} for {{ $labels.pod }}/{{ $labels.container }}"
+      
+      # High memory usage
+      - alert: HighMemoryUsage
+        expr: |
+          (
+            container_memory_usage_bytes{namespace="userwhisperer-prod",container!="POD",container!=""}
+            / 
+            container_spec_memory_limit_bytes{namespace="userwhisperer-prod",container!="POD",container!=""}
+          ) > 0.9
+        for: 5m
+        labels:
+          severity: warning
+          component: resources
+          team: platform
+        annotations:
+          summary: "High memory usage for {{ $labels.pod }}/{{ $labels.container }}"
+          description: "Memory usage is {{ $value | humanizePercentage }} for {{ $labels.pod }}/{{ $labels.container }}"
+      
+      # Pod restart rate
+      - alert: HighPodRestartRate
+        expr: |
+          increase(kube_pod_container_status_restarts_total{namespace="userwhisperer-prod"}[15m]) > 3
+        for: 0m
+        labels:
+          severity: warning
+          component: stability
+          team: platform
+        annotations:
+          summary: "Pod {{ $labels.pod }} is restarting frequently"
+          description: "Pod {{ $labels.pod }} has restarted {{ $value }} times in the last 15 minutes"
+    
+    # ==========================================
+    # APPLICATION-SPECIFIC ALERTS
+    # ==========================================
+    - name: application
+      interval: 30s
+      rules:
+      
+      # Event ingestion lag
+      - alert: EventIngestionLag
+        expr: |
+          userwhisperer_event_ingestion_lag_seconds > 30
+        for: 2m
+        labels:
+          severity: critical
+          component: ingestion
+          team: platform
+        annotations:
+          summary: "Event ingestion lag is high"
+          description: "Event ingestion lag is {{ $value }} seconds"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/ingestion-lag"
+      
+      # High event drop rate
+      - alert: HighEventDropRate
+        expr: |
+          (
+            sum(rate(userwhisperer_events_dropped_total[5m])) 
+            /
+            sum(rate(userwhisperer_events_received_total[5m]))
+          ) > 0.01
+        for: 3m
+        labels:
+          severity: critical
+          component: ingestion
+          team: platform
+        annotations:
+          summary: "High event drop rate"
+          description: "{{ $value | humanizePercentage }} of events are being dropped"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/event-drop-rate"
+      
+      # Decision engine latency
+      - alert: DecisionEngineLatency
+        expr: |
+          histogram_quantile(0.99, 
+            sum(rate(userwhisperer_decision_latency_seconds_bucket[5m])) by (le)
+          ) > 0.5
+        for: 5m
+        labels:
+          severity: warning
+          component: decisions
+          team: ml
+        annotations:
+          summary: "Decision engine latency is high"
+          description: "99th percentile decision latency is {{ $value }}s"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/decision-latency"
+      
+      # ML model accuracy degradation
+      - alert: ModelAccuracyDegraded
+        expr: |
+          userwhisperer_ml_model_accuracy < 0.75
+        for: 30m
+        labels:
+          severity: warning
+          component: ml
+          team: ml
+        annotations:
+          summary: "Model {{ $labels.model_name }} accuracy degraded"
+          description: "Model {{ $labels.model_name }} accuracy is {{ $value }}, below threshold of 0.75"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/model-accuracy"
+      
+      # Queue depth alerts
+      - alert: HighQueueDepth
+        expr: |
+          userwhisperer_queue_depth > 10000
+        for: 10m
+        labels:
+          severity: warning
+          component: queues
+          team: platform
+        annotations:
+          summary: "High queue depth for {{ $labels.queue_name }}"
+          description: "Queue {{ $labels.queue_name }} depth is {{ $value }}"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/queue-depth"
+    
+    # ==========================================
+    # DATABASE ALERTS
+    # ==========================================
+    - name: database
+      interval: 30s
+      rules:
+      
+      # Database connection issues
+      - alert: DatabaseConnectionPoolExhausted
+        expr: |
+          (
+            pg_stat_database_numbackends{datname="userwhisperer"}
+            /
+            pg_settings_max_connections
+          ) > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          team: platform
+        annotations:
+          summary: "Database connection pool nearly exhausted"
+          description: "{{ $value | humanizePercentage }} of database connections are in use"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/db-connections"
+      
+      # Database replication lag
+      - alert: DatabaseReplicationLag
+        expr: |
+          pg_replication_lag_seconds > 60
+        for: 5m
+        labels:
+          severity: warning
+          component: database
+          team: platform
+        annotations:
+          summary: "Database replication lag is high"
+          description: "Replication lag is {{ $value }} seconds"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/db-replication-lag"
+      
+      # Database disk usage
+      - alert: DatabaseHighDiskUsage
+        expr: |
+          (
+            pg_database_size_bytes{datname="userwhisperer"}
+            /
+            node_filesystem_size_bytes{mountpoint="/var/lib/postgresql/data"}
+          ) > 0.85
+        for: 10m
+        labels:
+          severity: warning
+          component: database
+          team: platform
+        annotations:
+          summary: "Database disk usage is high"
+          description: "Database is using {{ $value | humanizePercentage }} of available disk space"
+          runbook_url: "https://docs.userwhisperer.ai/runbooks/db-disk-usage"
+
+  recording-rules.yml: |
+    groups:
+    # ==========================================
+    # SLA RECORDING RULES
+    # ==========================================
+    - name: sla
+      interval: 30s
+      rules:
+      
+      # API Success Rate (SLI)
+      - record: userwhisperer:api_success_rate
+        expr: |
+          (
+            sum(rate(http_requests_total{status!~"5.."}[5m])) by (service)
+            /
+            sum(rate(http_requests_total[5m])) by (service)
+          )
+      
+      # API Latency P95 (SLI)
+      - record: userwhisperer:api_latency_p95
+        expr: |
+          histogram_quantile(0.95,
+            sum(rate(http_request_duration_seconds_bucket[5m])) by (service, le)
+          )
+      
+      # Event Processing Rate
+      - record: userwhisperer:event_processing_rate
+        expr: |
+          sum(rate(userwhisperer_events_processed_total[5m])) by (service)
+      
+      # Decision Success Rate
+      - record: userwhisperer:decision_success_rate
+        expr: |
+          (
+            sum(rate(userwhisperer_decisions_total{status="success"}[5m]))
+            /
+            sum(rate(userwhisperer_decisions_total[5m]))
+          )
+    
+    # ==========================================
+    # RESOURCE UTILIZATION RULES
+    # ==========================================
+    - name: resources
+      interval: 60s
+      rules:
+      
+      # Pod CPU Utilization
+      - record: userwhisperer:pod_cpu_utilization
+        expr: |
+          (
+            sum(rate(container_cpu_usage_seconds_total{namespace="userwhisperer-prod",container!="POD"}[5m])) by (pod, container)
+            /
+            sum(container_spec_cpu_quota{namespace="userwhisperer-prod",container!="POD"}/container_spec_cpu_period{namespace="userwhisperer-prod",container!="POD"}) by (pod, container)
+          )
+      
+      # Pod Memory Utilization
+      - record: userwhisperer:pod_memory_utilization
+        expr: |
+          (
+            container_memory_usage_bytes{namespace="userwhisperer-prod",container!="POD"}
+            /
+            container_spec_memory_limit_bytes{namespace="userwhisperer-prod",container!="POD"}
+          )
+      
+      # Cluster Resource Usage
+      - record: userwhisperer:cluster_cpu_usage
+        expr: |
+          (
+            sum(rate(container_cpu_usage_seconds_total{namespace="userwhisperer-prod"}[5m]))
+            /
+            sum(kube_node_status_allocatable{resource="cpu"})
+          )
+      
+      - record: userwhisperer:cluster_memory_usage
+        expr: |
+          (
+            sum(container_memory_usage_bytes{namespace="userwhisperer-prod"})
+            /
+            sum(kube_node_status_allocatable{resource="memory"})
+          )

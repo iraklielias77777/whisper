@@ -1,0 +1,79 @@
+# User Whisperer Platform - Kubernetes Namespace
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: user-whisperer
+  labels:
+    name: user-whisperer
+    environment: production
+    platform: kubernetes
+    version: "1.0.0"
+  annotations:
+    description: "User Whisperer Platform - AI-powered customer engagement"
+    team: "platform-engineering"
+    contact: "platform@userwhisperer.com"
+---
+# Network Policies for Security
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: user-whisperer-network-policy
+  namespace: user-whisperer
+spec:
+  podSelector: {}
+  policyTypes:
+  - Ingress
+  - Egress
+  ingress:
+  - from:
+    - namespaceSelector:
+        matchLabels:
+          name: user-whisperer
+    - namespaceSelector:
+        matchLabels:
+          name: kube-system
+    - namespaceSelector:
+        matchLabels:
+          name: monitoring
+  egress:
+  - {} # Allow all outbound traffic for now
+---
+# Resource Quota
+apiVersion: v1
+kind: ResourceQuota
+metadata:
+  name: user-whisperer-quota
+  namespace: user-whisperer
+spec:
+  hard:
+    requests.cpu: "20"
+    requests.memory: 40Gi
+    limits.cpu: "40"
+    limits.memory: 80Gi
+    persistentvolumeclaims: "10"
+    services: "20"
+    secrets: "50"
+    configmaps: "50"
+---
+# Limit Range
+apiVersion: v1
+kind: LimitRange
+metadata:
+  name: user-whisperer-limits
+  namespace: user-whisperer
+spec:
+  limits:
+  - default:
+      cpu: "1"
+      memory: "2Gi"
+    defaultRequest:
+      cpu: "100m"
+      memory: "256Mi"
+    type: Container
+  - max:
+      cpu: "4"
+      memory: "8Gi"
+    min:
+      cpu: "50m"
+      memory: "128Mi"
+    type: Container

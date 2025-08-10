@@ -1,0 +1,206 @@
+_format_version: "3.0"
+_transform: true
+
+services:
+  - name: event-ingestion
+    url: http://event-ingestion:3001
+    plugins:
+      - name: cors
+        config:
+          origins:
+            - "https://userwhisperer.ai"
+            - "https://app.userwhisperer.ai"
+            - "https://dashboard.userwhisperer.ai"
+          methods:
+            - GET
+            - POST
+            - PUT
+            - DELETE
+            - OPTIONS
+          headers:
+            - Accept
+            - Accept-Version
+            - Content-Length
+            - Content-MD5
+            - Content-Type
+            - Date
+            - X-Auth-Token
+            - Authorization
+          credentials: true
+      - name: rate-limiting
+        config:
+          minute: 1000
+          hour: 10000
+          day: 50000
+      - name: key-auth
+        config:
+          key_names:
+            - "X-API-Key"
+            - "apikey"
+
+  - name: behavioral-analysis
+    url: http://behavioral-analysis:3002
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - "X-API-Key"
+            - "apikey"
+      - name: rate-limiting
+        config:
+          minute: 500
+          hour: 5000
+
+  - name: decision-engine
+    url: http://decision-engine:3003
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - "X-API-Key"
+            - "apikey"
+      - name: rate-limiting
+        config:
+          minute: 300
+          hour: 3000
+
+  - name: content-generation
+    url: http://content-generation:3004
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - "X-API-Key"
+            - "apikey"
+      - name: rate-limiting
+        config:
+          minute: 200
+          hour: 2000
+
+  - name: channel-orchestrator
+    url: http://channel-orchestrator:3005
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - "X-API-Key"
+            - "apikey"
+      - name: rate-limiting
+        config:
+          minute: 500
+          hour: 5000
+
+  - name: ai-orchestration
+    url: http://ai-orchestration:8085
+    plugins:
+      - name: key-auth
+        config:
+          key_names:
+            - "X-API-Key"
+            - "apikey"
+      - name: rate-limiting
+        config:
+          minute: 100
+          hour: 1000
+
+routes:
+  # Event Ingestion Routes
+  - name: events-route
+    service: event-ingestion
+    paths:
+      - /v1/events
+    methods:
+      - GET
+      - POST
+      - OPTIONS
+    strip_path: false
+
+  # Behavioral Analysis Routes
+  - name: analytics-route
+    service: behavioral-analysis
+    paths:
+      - /v1/analytics
+    methods:
+      - GET
+      - POST
+    strip_path: false
+
+  # Decision Engine Routes
+  - name: decisions-route
+    service: decision-engine
+    paths:
+      - /v1/decisions
+    methods:
+      - GET
+      - POST
+    strip_path: false
+
+  # Content Generation Routes
+  - name: content-route
+    service: content-generation
+    paths:
+      - /v1/content
+    methods:
+      - GET
+      - POST
+    strip_path: false
+
+  # Channel Orchestrator Routes
+  - name: delivery-route
+    service: channel-orchestrator
+    paths:
+      - /v1/delivery
+    methods:
+      - GET
+      - POST
+    strip_path: false
+
+  # AI Orchestration Routes
+  - name: orchestrate-route
+    service: ai-orchestration
+    paths:
+      - /v1/orchestrate
+    methods:
+      - GET
+      - POST
+    strip_path: false
+
+  # Health checks (no auth required)
+  - name: health-checks
+    service: event-ingestion
+    paths:
+      - /health
+    methods:
+      - GET
+    strip_path: false
+    plugins:
+      - name: key-auth
+        config:
+          anonymous: "anonymous"
+
+# Global plugins
+plugins:
+  - name: prometheus
+    config:
+      per_consumer: true
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+
+  - name: http-log
+    config:
+      http_endpoint: "https://logs.userwhisperer.ai/kong"
+      method: POST
+      timeout: 1000
+      keepalive: 1000
+
+consumers:
+  - username: anonymous
+
+  - username: test-consumer
+    keyauth_credentials:
+      - key: test-api-key-12345
+
+  - username: production-consumer
+    keyauth_credentials:
+      - key: prod-api-key-$(openssl rand -hex 32)

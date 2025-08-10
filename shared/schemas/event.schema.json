@@ -1,0 +1,222 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "User Whisperer Event Schema",
+  "description": "Comprehensive schema for all events processed by the User Whisperer platform",
+  "type": "object",
+  "required": ["event_type", "user_id", "timestamp"],
+  "properties": {
+    "event_id": {
+      "type": "string",
+      "pattern": "^evt_[a-zA-Z0-9]{16}$",
+      "description": "Unique event identifier (auto-generated if not provided)"
+    },
+    "app_id": {
+      "type": "string",
+      "pattern": "^app_[a-zA-Z0-9]{16}$",
+      "description": "Application identifier"
+    },
+    "user_id": {
+      "type": "string",
+      "pattern": "^usr_[a-zA-Z0-9]{16}$",
+      "description": "User identifier"
+    },
+    "session_id": {
+      "type": "string",
+      "pattern": "^ses_[a-zA-Z0-9]{16}$",
+      "description": "Session identifier"
+    },
+    "event_type": {
+      "type": "string",
+      "enum": [
+        "user_signup",
+        "user_login",
+        "user_logout",
+        "feature_used",
+        "page_viewed",
+        "button_clicked",
+        "form_submitted",
+        "error_encountered",
+        "trial_started",
+        "subscription_upgraded",
+        "subscription_downgraded",
+        "subscription_cancelled",
+        "payment_failed",
+        "payment_succeeded",
+        "support_ticket_created",
+        "support_ticket_resolved",
+        "app_crashed",
+        "feature_discovery",
+        "onboarding_step_completed",
+        "onboarding_completed",
+        "tutorial_viewed",
+        "tutorial_completed",
+        "settings_changed",
+        "data_exported",
+        "data_imported",
+        "collaboration_invited",
+        "collaboration_accepted",
+        "collaboration_declined",
+        "notification_sent",
+        "notification_opened",
+        "notification_clicked",
+        "notification_dismissed",
+        "email_sent",
+        "email_opened",
+        "email_clicked",
+        "email_bounced",
+        "email_unsubscribed",
+        "sms_sent",
+        "sms_delivered",
+        "sms_failed",
+        "push_sent",
+        "push_opened",
+        "push_failed",
+        "api_call_made",
+        "integration_connected",
+        "integration_disconnected",
+        "feedback_submitted",
+        "survey_completed",
+        "referral_made",
+        "referral_converted"
+      ],
+      "description": "Type of event that occurred"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp when event occurred"
+    },
+    "properties": {
+      "type": "object",
+      "description": "Event-specific properties",
+      "additionalProperties": true,
+      "properties": {
+        "feature": {
+          "type": "string",
+          "description": "Feature name for feature_used events"
+        },
+        "page": {
+          "type": "string",
+          "description": "Page path for page_viewed events"
+        },
+        "button": {
+          "type": "string",
+          "description": "Button identifier for button_clicked events"
+        },
+        "form": {
+          "type": "string", 
+          "description": "Form identifier for form_submitted events"
+        },
+        "error_type": {
+          "type": "string",
+          "enum": ["validation", "network", "server", "client", "timeout", "permission"],
+          "description": "Error category for error_encountered events"
+        },
+        "error_message": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Error message for error_encountered events"
+        },
+        "plan": {
+          "type": "string",
+          "enum": ["free", "basic", "pro", "enterprise"],
+          "description": "Subscription plan"
+        },
+        "amount": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Monetary amount in cents"
+        },
+        "currency": {
+          "type": "string",
+          "pattern": "^[A-Z]{3}$",
+          "description": "ISO 4217 currency code"
+        },
+        "duration": {
+          "type": "number",
+          "minimum": 0,
+          "description": "Duration in milliseconds"
+        },
+        "value": {
+          "type": "number",
+          "description": "Numeric value associated with event"
+        }
+      }
+    },
+    "context": {
+      "type": "object",
+      "description": "Contextual information about the event",
+      "properties": {
+        "ip": {
+          "type": "string",
+          "anyOf": [
+            {"format": "ipv4"},
+            {"format": "ipv6"}
+          ],
+          "description": "User IP address"
+        },
+        "user_agent": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "User agent string"
+        },
+        "referrer": {
+          "type": "string",
+          "format": "uri",
+          "description": "Referrer URL"
+        },
+        "utm_source": {
+          "type": "string",
+          "maxLength": 100,
+          "description": "UTM source parameter"
+        },
+        "device_type": {
+          "type": "string",
+          "enum": ["desktop", "mobile", "tablet"],
+          "description": "Device type"
+        },
+        "browser": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Browser name"
+        },
+        "os": {
+          "type": "string",
+          "maxLength": 50,
+          "description": "Operating system"
+        },
+        "app_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+\\.\\d+.*$",
+          "description": "Application version"
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Internal metadata for processing",
+      "properties": {
+        "received_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When event was received by ingestion service"
+        },
+        "processed_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "When event was processed"
+        },
+        "schema_version": {
+          "type": "string",
+          "pattern": "^\\d+\\.\\d+$",
+          "description": "Schema version used for validation"
+        },
+        "source": {
+          "type": "string",
+          "enum": ["sdk", "api", "webhook", "batch", "import"],
+          "description": "Event source"
+        }
+      }
+    }
+  }
+} 

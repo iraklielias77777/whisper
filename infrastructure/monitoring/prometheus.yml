@@ -1,0 +1,193 @@
+# Prometheus configuration for User Whisperer Platform
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+  external_labels:
+    cluster: 'user-whisperer'
+    environment: 'development'
+
+# Rule files for alerting
+rule_files:
+  - "alerts/*.yml"
+
+# Scrape configuration
+scrape_configs:
+  # Prometheus itself
+  - job_name: 'prometheus'
+    static_configs:
+      - targets: ['localhost:9090']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # API Gateway
+  - job_name: 'api-gateway'
+    static_configs:
+      - targets: ['api-gateway:8000']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+    honor_labels: true
+    params:
+      format: ['prometheus']
+
+  # Event Ingestion Service
+  - job_name: 'event-ingestion'
+    static_configs:
+      - targets: ['event-ingestion:3001']
+    scrape_interval: 10s
+    metrics_path: /metrics
+    scrape_timeout: 5s
+
+  # Behavioral Analysis Engine
+  - job_name: 'behavioral-analysis'
+    static_configs:
+      - targets: ['behavioral-analysis:3002']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+
+  # Decision Engine
+  - job_name: 'decision-engine'
+    static_configs:
+      - targets: ['decision-engine:3003']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+
+  # Content Generator
+  - job_name: 'content-generator'
+    static_configs:
+      - targets: ['content-generator:3004']
+    scrape_interval: 30s
+    metrics_path: /metrics
+    scrape_timeout: 15s
+
+  # Channel Orchestrator
+  - job_name: 'channel-orchestrator'
+    static_configs:
+      - targets: ['channel-orchestrator:3005']
+    scrape_interval: 15s
+    metrics_path: /metrics
+    scrape_timeout: 10s
+
+  # PostgreSQL Exporter
+  - job_name: 'postgres'
+    static_configs:
+      - targets: ['postgres-exporter:9187']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Redis Exporter
+  - job_name: 'redis'
+    static_configs:
+      - targets: ['redis-exporter:9121']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Node Exporter (system metrics)
+  - job_name: 'node'
+    static_configs:
+      - targets: ['node-exporter:9100']
+    scrape_interval: 30s
+    metrics_path: /metrics
+
+  # Kubernetes pods (for production)
+  - job_name: 'kubernetes-pods'
+    kubernetes_sd_configs:
+      - role: pod
+        namespaces:
+          names:
+            - user-whisperer
+            - monitoring
+    relabel_configs:
+      # Only scrape pods with prometheus.io/scrape annotation
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      
+      # Use custom metrics path if specified
+      - source_labels: [__meta_kubernetes_pod_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      
+      # Use custom port if specified
+      - source_labels: [__address__, __meta_kubernetes_pod_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      
+      # Add pod metadata as labels
+      - action: labelmap
+        regex: __meta_kubernetes_pod_label_(.+)
+      
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      
+      - source_labels: [__meta_kubernetes_pod_name]
+        action: replace
+        target_label: kubernetes_pod_name
+
+  # Kubernetes services
+  - job_name: 'kubernetes-services'
+    kubernetes_sd_configs:
+      - role: service
+        namespaces:
+          names:
+            - user-whisperer
+            - monitoring
+    relabel_configs:
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_scrape]
+        action: keep
+        regex: true
+      
+      - source_labels: [__meta_kubernetes_service_annotation_prometheus_io_path]
+        action: replace
+        target_label: __metrics_path__
+        regex: (.+)
+      
+      - source_labels: [__address__, __meta_kubernetes_service_annotation_prometheus_io_port]
+        action: replace
+        regex: ([^:]+)(?::\d+)?;(\d+)
+        replacement: $1:$2
+        target_label: __address__
+      
+      - action: labelmap
+        regex: __meta_kubernetes_service_label_(.+)
+      
+      - source_labels: [__meta_kubernetes_namespace]
+        action: replace
+        target_label: kubernetes_namespace
+      
+      - source_labels: [__meta_kubernetes_service_name]
+        action: replace
+        target_label: kubernetes_service_name
+
+# Alertmanager configuration
+alerting:
+  alertmanagers:
+    - static_configs:
+        - targets:
+          - alertmanager:9093
+      timeout: 10s
+      api_version: v2
+
+# Remote write for long-term storage (optional)
+# remote_write:
+#   - url: "https://prometheus-prod-01-us-central-0.grafana.net/api/prom/push"
+#     basic_auth:
+#       username: "your_username"
+#       password: "your_password"
+#     write_relabel_configs:
+#       - source_labels: [__name__]
+#         regex: 'api_.*|user_.*|ml_.*'
+#         action: keep
+
+# Storage configuration
+storage:
+  tsdb:
+    retention.time: 15d
+    retention.size: 10GB
+    wal-compression: true

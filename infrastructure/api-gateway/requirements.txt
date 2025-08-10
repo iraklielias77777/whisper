@@ -1,0 +1,57 @@
+# API Gateway Dependencies
+
+# Core framework
+fastapi==0.104.1
+uvicorn[standard]==0.24.0.post1
+pydantic==2.5.1
+pydantic-settings==2.1.0
+
+# HTTP client
+aiohttp==3.9.1
+httpx==0.25.2
+
+# Redis for caching and rate limiting
+aioredis==2.0.1
+redis==5.0.1
+
+# Authentication and security
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+python-multipart==0.0.6
+
+# GraphQL support
+strawberry-graphql[fastapi]==0.214.1
+graphql-core==3.2.3
+
+# Database connectivity
+asyncpg==0.29.0
+psycopg2-binary==2.9.9
+
+# Monitoring and metrics
+prometheus-client==0.19.0
+structlog==23.2.0
+
+# Rate limiting and caching
+limits==3.6.0
+cachetools==5.3.2
+
+# Load balancing and health checks
+dnspython==2.4.2
+
+# WebSocket support
+websockets==12.0
+
+# Configuration management
+python-dotenv==1.0.0
+pyyaml==6.0.1
+
+# Testing
+pytest==7.4.3
+pytest-asyncio==0.21.1
+httpx==0.25.2
+
+# Development
+black==23.11.0
+isort==5.12.0
+flake8==6.1.0
+mypy==1.7.1
