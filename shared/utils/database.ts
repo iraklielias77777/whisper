@@ -26,6 +26,17 @@ export class DatabaseConnection {
       ssl: Config.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
     };
 
+    // Log connection details for debugging (without password)
+    logger.info('Database connection configuration', {
+      usingDatabaseUrl: !!Config.POSTGRES_URL,
+      host: Config.POSTGRES_HOST,
+      port: Config.POSTGRES_PORT,
+      database: Config.POSTGRES_DB,
+      user: Config.POSTGRES_USER,
+      ssl: Config.NODE_ENV === 'production' ? 'enabled' : 'disabled',
+      environment: Config.NODE_ENV
+    });
+
     this.pool = new Pool(connectionConfig);
 
     this.pool.on('error', (err: any) => {
@@ -95,10 +106,25 @@ export class DatabaseConnection {
 
   public async healthCheck(): Promise<boolean> {
     try {
+      logger.info('Starting database health check...');
       const result = await this.query('SELECT 1 as health_check');
-      return result.rows.length === 1 && result.rows[0].health_check === 1;
+      const isHealthy = result.rows.length === 1 && result.rows[0].health_check === 1;
+      logger.info('Database health check completed', { 
+        isHealthy, 
+        rowCount: result.rows.length,
+        value: result.rows[0]?.health_check 
+      });
+      return isHealthy;
     } catch (error) {
-      logger.error('Database health check failed', { error });
+      logger.error('Database health check failed', { 
+        error: error instanceof Error ? {
+          name: error.name,
+          message: error.message,
+          code: (error as any).code,
+          detail: (error as any).detail,
+          stack: error.stack?.split('\n').slice(0, 3).join('\n')
+        } : error 
+      });
       return false;
     }
   }
