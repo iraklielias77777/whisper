@@ -294,7 +294,7 @@ export class EventValidator {
       }
       
       // Check for SQL injection patterns
-      const sqlInjectionPattern = /('|(\\')|(--|;|\\\||<|>|%|script|union|select|insert|update|delete|drop|create|alter)/i;
+      const sqlInjectionPattern = /('|--|;|[|]|<|>|%|script|union|select|insert|update|delete|drop|create|alter)/i;
       if (sqlInjectionPattern.test(event.user_id)) {
         errors.push({
           field: 'user_id',
