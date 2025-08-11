@@ -7,7 +7,14 @@ export class DatabaseConnection {
   private static instance: DatabaseConnection;
 
   private constructor() {
-    this.pool = new Pool({
+    // Use DATABASE_URL if available, otherwise individual config
+    const connectionConfig = Config.POSTGRES_URL ? {
+      connectionString: Config.POSTGRES_URL,
+      max: Config.POSTGRES_MAX_CONNECTIONS,
+      idleTimeoutMillis: 30000,
+      connectionTimeoutMillis: 10000,
+      ssl: Config.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+    } : {
       host: Config.POSTGRES_HOST,
       port: Config.POSTGRES_PORT,
       database: Config.POSTGRES_DB,
@@ -15,9 +22,11 @@ export class DatabaseConnection {
       password: Config.POSTGRES_PASSWORD,
       max: Config.POSTGRES_MAX_CONNECTIONS,
       idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 2000,
+      connectionTimeoutMillis: 10000,
       ssl: Config.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
-    });
+    };
+
+    this.pool = new Pool(connectionConfig);
 
     this.pool.on('error', (err: any) => {
       logger.error('Unexpected error on idle client', { error: err });
